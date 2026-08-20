@@ -135,6 +135,55 @@ nasu-route search-bus \
 - 実GTFS ZIPを読み込んだfixtureまたは手動検証
 - 那須塩原市などの実GTFS ZIP取得・展開は、データ更新確認を含む別工程として扱う
 
+### TODO: 最新GTFSデータ自動取得・展開スクリプト
+
+ステータス: 未着手
+
+このTODOはユーザー指示により後回し。実行前に、実際の配布URLと認証情報の取り扱いを確認する。
+
+目的:
+
+- Phase 1で構築したGTFSベースのバス検索システムで利用する、最新GTFSデータを自動取得・展開する。
+- 外部サーバーからGTFSデータ（ZIP形式）をダウンロードし、プロジェクト内の指定ディレクトリに自動展開する `scripts/download_gtfs.py` を作成する。
+
+対象データ:
+
+1. 那須塩原市（ゆーバス）
+   - 認証: 不要（オープンデータ）
+   - ダウンロードURL例: `https://opendata.city.nasushiobara.lg.jp/dataset/gtfs/yu-bus.zip`
+   - 上記URLはダミー扱い。実装時は引数または環境変数からURLを渡せるようにする。
+
+2. 関東自動車（路線バス）
+   - 認証: 必要（PTD-HSのUID）
+   - ダウンロードURL仕様: 環境変数 `KANTO_BUS_GTFS_URL` に設定された、UIDパラメータを含むエンドポイントから取得する。
+
+実装要件:
+
+- 言語: Python 3.11+
+- ライブラリ: `requests`, `python-dotenv`
+- 標準ライブラリ: `zipfile`, `os`, `pathlib`, 必要に応じて `tempfile`, `shutil`, `logging`
+- `.env` ファイルから対象URLを読み込む
+- 対象URLにGETリクエストを送り、ZIPファイルをメモリ上または一時ファイルとしてダウンロードする
+- ダウンロードしたZIPファイルを以下へ展開する
+  - 那須塩原市: `data/gtfs/nasushiobara/`
+  - 関東自動車: `data/gtfs/kanto_auto/`
+- 古いデータが存在する場合は上書き、または事前にディレクトリをクリアする
+- 実行状況（成功・失敗・エラー内容）を `print` または `logging` で標準出力する
+
+出力物:
+
+- `scripts/download_gtfs.py`
+- 追加ライブラリが必要な場合は `requirements.txt` または `pyproject.toml` に反映する
+- `.env.example` に以下の環境変数例を追加する
+  - `NASUSHIOBARA_GTFS_URL`
+  - `KANTO_BUS_GTFS_URL`
+
+実装時の注意:
+
+- 実URLとPTD-HS UIDは機密または利用規約に関わる可能性があるため、repoに実値をcommitしない。
+- ZIP展開では Zip Slip 対策として、展開先ディレクトリ外へファイルが出ないことを検証する。
+- データ更新のたびに `data/gtfs/` 以下が大量差分にならないよう、GTFS実データは `.gitignore` 対象のままにする。
+
 ## Phase 2: FastAPIルーター
 
 ステータス: 未着手
