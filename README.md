@@ -2,7 +2,7 @@
 
 PoC backend for multimodal route planning in the Nasu area using GTFS bus data, walking routes, and taxi-like driving estimates.
 
-Current focus: Phase 1 `GTFSEngine` for direct bus search from GTFS CSV files.
+Current focus: Phase 2 FastAPI routers for bus search (`/transit/stops/nearby`, `/transit/routes`), backed by the Phase 1 `GTFSEngine`. Walking/taxi (`/non-transit/route`) is deliberately locked out until a Google Maps API key is available.
 
 ## Development
 
@@ -35,6 +35,21 @@ nasu-route search-bus \
   --to stop_ropeway \
   --time 10:00 \
   --date 2026-08-17
+```
+
+## Phase 2 API
+
+Run the API (defaults to `tests/fixtures/minimal_gtfs` until real GTFS data is available; override with `GTFS_DIR`):
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Then open `http://localhost:8000/docs` for Swagger UI, or call directly:
+
+```bash
+curl "http://localhost:8000/transit/routes?origin_stop_id=stop_yumoto&destination_stop_id=stop_ropeway&departure_time=10:00&departure_date=2026-08-17"
+curl "http://localhost:8000/transit/stops/nearby?lat=37.095&lng=140.001&radius_m=1000"
 ```
 
 ## Documents

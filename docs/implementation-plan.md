@@ -186,12 +186,35 @@ nasu-route search-bus \
 
 ## Phase 2: FastAPIルーター
 
-ステータス: 未着手
+ステータス: 一部完了（バス系のみ、`/non-transit/route`はロック中）
 
-- `/transit/stops/nearby`
-- `/transit/routes`
-- `/non-transit/route`
-- 設定ファイルまたは環境変数でGTFSパスとGoogle API keyを読み込む
+方針:
+
+- ユーザー指示により、Google Maps連携が必要な `/non-transit/route`（徒歩・タクシー）はこのPhaseでは実装しない。GTFSベースのバス機能のみ進める。
+- 実GTFSデータはまだDownloadsにしかなく `data/gtfs/` に未配置のため、`GTFS_DIR` 環境変数が未設定の場合は `tests/fixtures/minimal_gtfs` をデフォルトで使う（`app/core/config.py`）。実データ配置後は `GTFS_DIR` を向け替えるだけでよい。
+
+対象:
+
+- `GET /transit/stops/nearby`（`lat`, `lng`, `radius_m`、距離昇順）
+- `GET /transit/routes`（`origin_stop_id`, `destination_stop_id`, `departure_time`, 任意の`departure_date`）
+- `GET /non-transit/route`: 未着手（ロック中、Google API key入手後に着手）
+
+実装済み:
+
+- `app/main.py`, `app/api/transit.py`, `app/api/deps.py`, `app/core/config.py`, `app/models/transit.py`
+- `GTFSEngine.nearby_stops()` / `haversine_distance_m()`（`app/services/gtfs_engine.py`）
+- `tests/test_api_transit.py`
+
+検証:
+
+- `python -m pytest` で19 tests passed
+- `uvicorn app.main:app` 起動後、`curl` で `/health`, `/transit/routes`, `/transit/stops/nearby` の200応答とJSONを確認
+- `http://localhost:8000/docs`, `/openapi.json` の200応答を確認
+
+残作業:
+
+- `/non-transit/route`（Google Maps Directions API連携）はGoogle API key入手後に着手
+- 実GTFSデータを `data/gtfs/` に配置し、`GTFS_DIR` を向け替えて動作確認
 
 ## Phase 3: OpenAPI整理
 

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
 
 import pandas as pd
+
+EARTH_RADIUS_M = 6_371_000
 
 
 REQUIRED_GTFS_FILES = {
@@ -135,6 +138,34 @@ class GTFSEngine:
 
         return results
 
+    def nearby_stops(
+        self,
+        lat: float,
+        lng: float,
+        radius_m: float = 500,
+    ) -> list[dict[str, str | float]]:
+        """Return GTFS stops within radius_m of (lat, lng), nearest first."""
+
+        stops = self.stops.copy()
+        stops["distance_m"] = stops.apply(
+            lambda row: haversine_distance_m(
+                lat, lng, float(row["stop_lat"]), float(row["stop_lon"])
+            ),
+            axis=1,
+        )
+        stops = stops[stops["distance_m"] <= radius_m].sort_values("distance_m")
+
+        return [
+            {
+                "stop_id": str(row.stop_id),
+                "stop_name": str(row.stop_name),
+                "stop_lat": float(row.stop_lat),
+                "stop_lon": float(row.stop_lon),
+                "distance_m": round(float(row.distance_m), 1),
+            }
+            for row in stops.itertuples(index=False)
+        ]
+
     def active_service_ids(self, service_date: str | date) -> set[str]:
         """Return GTFS service_ids active on service_date."""
 
@@ -251,6 +282,16 @@ class GTFSEngine:
         if missing:
             columns = ", ".join(missing)
             raise ValueError(f"{file_name} is missing required columns: {columns}")
+
+
+def haversine_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Return great-circle distance in meters between two lat/lon points."""
+
+    lat1_rad, lon1_rad, lat2_rad, lon2_rad = map(radians, (lat1, lon1, lat2, lon2))
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+    a = sin(dlat / 2) ** 2 + cos(lat1_rad) * cos(lat2_rad) * sin(dlon / 2) ** 2
+    return 2 * EARTH_RADIUS_M * asin(sqrt(a))
 
 
 def parse_gtfs_time_to_minutes(value: str) -> int:
