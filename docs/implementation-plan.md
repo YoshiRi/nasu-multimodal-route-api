@@ -5,8 +5,35 @@
 ## 方針
 
 このリポジトリはPoC段階として進める。
-最初の目標は、那須エリアGTFSを読み込み、指定停留所間の直通バス候補を返す `GTFSEngine` を実装すること。
+最初の目標は、那須エリアGTFSを読み込み、CLI上で指定停留所間の直通バス候補を検索できるようにすること。
 FastAPI化、Google Maps連携、AI探索用グラフ構築は、Phase 1 の動作確認後に段階的に追加する。
+
+## Phase Goal
+
+### Phase 1 Goal
+
+**CLI（ターミナル）上でGTFSデータを解析し、バス停間の時刻表検索ができる**
+
+確認方法:
+
+- スクリプトを実行し、指定時刻以降に乗れる直通バスの便名・発着時刻がコンソールに出力されること。
+
+### Phase 2 Goal
+
+**FastAPIを起動し、Web API（Swagger UI）からバス・徒歩経路を個別に検索できる**
+
+確認方法:
+
+- ブラウザ（`http://localhost:8000/docs`）からバス時刻検索APIやGoogle連携の徒歩計算APIを実行し、正しいJSONが返ること。
+
+### Phase 3 Goal
+
+**AIエージェント（Function Calling）がAPIを解釈・呼び出しでき、全地点間の移動グラフを一括取得できる**
+
+確認方法:
+
+- `openapi.json` をAIに読み込ませて自律実行できること。
+- `POST /plan/graph-data` 1回で複数スポット間の移動コストが網羅されたJSONが手に入ること。
 
 ## Phase 1: GTFS解析コア
 
@@ -20,6 +47,8 @@ FastAPI化、Google Maps連携、AI探索用グラフ構築は、Phase 1 の動�
 - GTFS仕様に合わせて `24:10:00` のような24時超え時刻を内部で分に変換する
 - 乗り換えなし、同一 `trip_id` の直通便のみを対象にする
 - 出発時刻昇順で最大3件返す
+- CLIからGTFSディレクトリ、出発停留所、到着停留所、出発時刻、任意の日付を指定できる
+- CLIのコンソール出力に便名・発着時刻・所要時間を表示する
 
 返却項目:
 
@@ -45,13 +74,39 @@ FastAPI化、Google Maps連携、AI探索用グラフ構築は、Phase 1 の動�
 実装済み:
 
 - `app/services/gtfs_engine.py`
+- `app/cli.py`
 - `tests/fixtures/minimal_gtfs/`
 - `tests/test_gtfs_engine.py`
+- `tests/test_cli.py`
+
+CLI実行例:
+
+```bash
+python -m app.cli search-bus \
+  --gtfs-dir tests/fixtures/minimal_gtfs \
+  --from stop_yumoto \
+  --to stop_ropeway \
+  --time 10:00 \
+  --date 2026-08-17
+```
+
+インストール後のconsole script:
+
+```bash
+nasu-route search-bus \
+  --gtfs-dir tests/fixtures/minimal_gtfs \
+  --from stop_yumoto \
+  --to stop_ropeway \
+  --time 10:00 \
+  --date 2026-08-17
+```
 
 検証:
 
 - `python -m pytest`
-- 6 tests passed
+- 14 tests passed
+- `python -m app.cli search-bus ...` で便名・発着時刻のコンソール出力を確認
+- `nasu-route search-bus ...` で便名・発着時刻のコンソール出力を確認
 
 ## Phase 1.5: GTFS実データ対応強化
 
@@ -78,6 +133,7 @@ FastAPI化、Google Maps連携、AI探索用グラフ構築は、Phase 1 の動�
 
 - 複数フィードを扱う場合のID prefix 方針
 - 実GTFS ZIPを読み込んだfixtureまたは手動検証
+- 那須塩原市などの実GTFS ZIP取得・展開は、データ更新確認を含む別工程として扱う
 
 ## Phase 2: FastAPIルーター
 

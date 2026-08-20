@@ -17,6 +17,9 @@ dependencies = [
     "uvicorn[standard]>=0.29",
 ]
 
+[project.scripts]
+nasu-route = "app.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",

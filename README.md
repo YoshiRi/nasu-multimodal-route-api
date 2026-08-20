@@ -13,6 +13,30 @@ python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
+## Phase 1 CLI
+
+Search direct bus trips from GTFS CSV files:
+
+```bash
+python -m app.cli search-bus \
+  --gtfs-dir tests/fixtures/minimal_gtfs \
+  --from stop_yumoto \
+  --to stop_ropeway \
+  --time 10:00 \
+  --date 2026-08-17
+```
+
+After installing the package, the console script is also available:
+
+```bash
+nasu-route search-bus \
+  --gtfs-dir tests/fixtures/minimal_gtfs \
+  --from stop_yumoto \
+  --to stop_ropeway \
+  --time 10:00 \
+  --date 2026-08-17
+```
+
 ## Documents
 
 - `docs/project-instruction.md`: original project instruction
