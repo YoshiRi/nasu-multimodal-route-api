@@ -145,7 +145,16 @@ nasu-route search-bus \
 
 対応済み: `GTFSEngine.from_feeds({feed_name: gtfs_dir, ...})` を実装（`app/services/gtfs_engine.py`）。各フィードを個別に読み込んだ上で `stop_id` / `route_id` / `trip_id` / `service_id` を `"<feed_name>:"` でプレフィックスして結合する。`stop_times`・`trips`・`calendar`・`calendar_dates`もfeed内で整合するように同じプレフィックスを適用するため、`search_next_bus` / `nearby_stops` / `active_service_ids` はマージ後もそのまま動作する。3フィード実データ（nasushiobara + nasutown + kanto_auto、計4565停留所）で全IDがユニークになることを確認済み。`tests/fixtures/minimal_gtfs_other/`（IDを意図的に衝突させたfixture）でも検証。
 
-未対応（Phase 2 API・CLIへの結線）: `app/core/config.py` の `GTFS_DIR` は単一ディレクトリ前提のままで、`from_feeds`はまだAPI/CLIから呼ばれていない。複数フィード横断のnearby検索などが必要になった時点で結線する。
+API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str, Path]` に変更し、`discover_gtfs_feeds()` が `data/gtfs/` 配下の有効なGTFSサブディレクトリ（stops/routes/trips/stop_times全て揃っているもの）を自動検出する。
+
+- `GTFS_DIR` 環境変数が設定されていればそれを唯一のフィード（`{"default": ...}`）として使う（従来通り、IDはプレフィックスなし）。
+- 未設定時、`data/gtfs/` 配下に有効なフィードが1つ以上見つかればそれらを使う。1つなら単一フィードとしてそのまま（プレフィックスなし）、2つ以上なら `GTFSEngine.from_feeds()` でマージ（`"<feed_name>:"` プレフィックス）。
+- どちらもなければ `tests/fixtures/minimal_gtfs`（プレフィックスなし）にフォールバック。
+- `app/api/deps.py` の `get_gtfs_engine` がこのロジックでエンジンをキャッシュする。
+
+検証: 那須塩原市・那須町・関東自動車の3フィードをダウンロード済みの状態で `uvicorn app.main:app` を起動し、`/transit/stops/nearby` が3事業者の停留所を横断して距離昇順で返すこと、`/transit/routes` がプレフィックス付きID（例: `nasushiobara:1_01`）で検索できることを確認。`GTFS_DIR` で単一ディレクトリを指定した場合は、従来通りプレフィックスなしのIDで動作することも確認。
+
+テスト: `tests/test_config.py`（`discover_gtfs_feeds`）を追加。`tests/test_api_transit.py`はローカルの`data/gtfs/`実データの有無に影響されないよう、`app.dependency_overrides[get_gtfs_engine]`でfixtureに固定するよう修正。
 - 那須塩原市などの実GTFS ZIP取得・展開は、データ更新確認を含む別工程として扱う
 
 ### TODO: 最新GTFSデータ自動取得・展開スクリプト

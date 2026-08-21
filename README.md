@@ -39,13 +39,17 @@ nasu-route search-bus \
 
 ## Phase 2 API
 
-Run the API (defaults to `tests/fixtures/minimal_gtfs` until real GTFS data is available; override with `GTFS_DIR`):
-
 ```bash
 uvicorn app.main:app --reload
 ```
 
-Then open `http://localhost:8000/docs` for Swagger UI, or call directly:
+GTFS source is picked automatically, in this order:
+
+1. `GTFS_DIR` env var, if set — a single directory, IDs used as-is.
+2. Otherwise, every valid feed subdirectory under `data/gtfs/` (populated by `scripts/download_gtfs.py`). One feed is used as-is; more than one is merged with `"<feed_name>:"`-prefixed IDs (e.g. `nasushiobara:1_01`) to keep operators' IDs from colliding.
+3. Otherwise, falls back to `tests/fixtures/minimal_gtfs` so the API runs with no setup.
+
+Open `http://localhost:8000/docs` for Swagger UI, or call directly:
 
 ```bash
 curl "http://localhost:8000/transit/routes?origin_stop_id=stop_yumoto&destination_stop_id=stop_ropeway&departure_time=10:00&departure_date=2026-08-17"

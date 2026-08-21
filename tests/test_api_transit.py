@@ -1,6 +1,16 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
+from app.api.deps import get_gtfs_engine
 from app.main import app
+from app.services.gtfs_engine import GTFSEngine
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures" / "minimal_gtfs"
+
+# Pin the engine to the bundled fixture regardless of whatever real GTFS
+# data happens to exist under data/gtfs/ on this machine.
+app.dependency_overrides[get_gtfs_engine] = lambda: GTFSEngine(FIXTURE_DIR)
 
 client = TestClient(app)
 
