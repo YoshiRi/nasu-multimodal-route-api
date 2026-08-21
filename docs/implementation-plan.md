@@ -137,9 +137,44 @@ nasu-route search-bus \
 
 ### TODO: 最新GTFSデータ自動取得・展開スクリプト
 
-ステータス: 未着手
+ステータス: 実装済み（実URL未設定）
 
-このTODOはユーザー指示により後回し。実行前に、実際の配布URLと認証情報の取り扱いを確認する。
+`scripts/download_gtfs.py` を実装。各フィードのダウンロードURLは `.env` の環境変数から読み込み、未設定のフィードはスキップする設計。Zip Slip対策として、展開前に全エントリの展開先パスが `dest_dir` 配下に収まることを検証してから展開する。既存ディレクトリは展開前にクリアする。
+
+実装済み:
+
+- `scripts/download_gtfs.py`（`download_zip`, `extract_gtfs_zip`, `update_feed`, `main`）
+- `.env.example`（`NASUSHIOBARA_GTFS_URL`, `NASUTOWN_GTFS_URL`, `KANTO_BUS_GTFS_URL`）
+- `python-dotenv` を依存関係に追加
+- `tests/test_download_gtfs.py`: Zip Slip拒否、既存ファイル上書き、env未設定時のスキップ、`httpx.MockTransport` によるダウンロード処理のテスト
+
+検証:
+
+- `python -m pytest` で24 tests passed
+- ローカルHTTPサーバー越しに `python scripts/download_gtfs.py --feed nasushiobara` を実行し、Downloadsの実ZIPを手動展開した結果と`diff -rq`で完全一致することを確認
+
+実URL・秘匿方針:
+
+- 那須塩原市地域バス・那須町町民バスは `https://api.gtfs-data.jp/v2/organizations/<org>/feeds/<feed>/files/feed.zip` 形式、認証不要（S3への302リダイレクト）。**この2つは公開URLなので秘密にする必要がなく**、`scripts/download_gtfs.py` の `FEEDS` にデフォルトURLとしてハードコードしている。`.env`での設定は不要（上書き用の`<SLUG>_GTFS_URL`は任意で使える）。
+- 関東自動車（PTD-HS）は `GetData?agency_id=0904&uid=<APIキー>` の形で**URLそのものにAPIキーが埋め込まれる**ため、URL全体を隠す代わりに、公開部分（エンドポイントと`agency_id=0904`）をソースの`default_url`テンプレートに書き、秘密の`uid`値だけを`.env`の`KANTO_BUS_GTFS_API_KEY`に置く設計にした（`FeedConfig.resolve_url()`が実行時に合成する）。
+- `python scripts/download_gtfs.py` で全フィードを実際にダウンロード・展開し、Downloadsの手動展開データと `diff -rq` で完全一致することを確認済み。`.env`に`KANTO_BUS_GTFS_API_KEY`のみを置いた状態で3フィードとも取得できることも確認済み。
+- 副次対応: `httpx`の標準ロガーがリクエストURL（=APIキー入り）をINFOログにそのまま出力していたため、`logging.getLogger("httpx").setLevel(logging.WARNING)`で抑止した。
+
+更新状況の記録（`data/gtfs_manifest.json`）:
+
+- ダウンロード成功時に、各フィードの `feed_info.txt` から `feed_start_date` / `feed_end_date` / `feed_version` を読み取り、取得日時・ZIPのsha256とともに `data/gtfs_manifest.json` に記録する。
+- `data/gtfs/` はGTFS実データごと`.gitignore`対象だが、`data/gtfs_manifest.json` はそのサブディレクトリの外にあるため通常どおりgit管理される。更新のたびにcommitすれば、`git log`がそのまま「いつ・どのフィードを更新したか」の履歴になる。
+- `python scripts/download_gtfs.py --status` で、フィードごとの最終取得日時・`feed_end_date`・状態（`ok` / `update soon (Nd left)` / `EXPIRED` / `not downloaded yet`）を一覧表示する。`feed_end_date`まで30日以内、または経過済みの場合に警告する。
+
+関東自動車:
+
+- 配信元は PTD-HS（`https://www.ptd-hs.jp`）。`POST /GetAgencyList?uid=<APIキー>` で事業者一覧が取得でき、`agency_id=0904`が関東自動車と判明した。
+- `GET /GetData?agency_id=0904&uid=<APIキー>` でGTFS ZIP（stops 4230件、trips 4425件）を取得・`GTFSEngine`での読み込み・直通便検索を確認済み。`feed_end_date`は`20270730`。
+- APIキー・URLは `.env` の `KANTO_BUS_GTFS_API_KEY` / `KANTO_BUS_GTFS_URL` に設定済み（repoにはcommitしない）。
+
+残作業:
+
+- 実運用では `--status` を定期実行（cronなど）してPhase 3以降の運行日判定に古いデータを使わないようにする
 
 目的:
 

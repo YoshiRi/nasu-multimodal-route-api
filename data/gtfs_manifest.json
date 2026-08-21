@@ -1,0 +1,23 @@
+{
+  "kanto_auto": {
+    "downloaded_at": "2026-08-21T10:09:22+00:00",
+    "feed_end_date": "20270730",
+    "feed_start_date": "20260801",
+    "feed_version": "2.0",
+    "sha256": "74dc102265bab4bb946ff7384c2fdeb7fe4df1e4844ac5345c283fa86e5afefa"
+  },
+  "nasushiobara": {
+    "downloaded_at": "2026-08-21T10:09:18+00:00",
+    "feed_end_date": "20270331",
+    "feed_start_date": "20260401",
+    "feed_version": "20260401_2026年04月01日（那須塩原市地域バスゆーバス20260401） その筋屋 1.705",
+    "sha256": "a9b957547546771cca600ce23458081af0ee1af7eaae825b3dada89fe17da690"
+  },
+  "nasutown": {
+    "downloaded_at": "2026-08-21T10:09:19+00:00",
+    "feed_end_date": "20270331",
+    "feed_start_date": "20260401",
+    "feed_version": "2026/04/01改正-見える化ver2.6e",
+    "sha256": "e53a1aa65caffe19822c4f1298b333e3b9c7730809e9f7a02717ea40d9e04944"
+  }
+}

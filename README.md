@@ -52,6 +52,21 @@ curl "http://localhost:8000/transit/routes?origin_stop_id=stop_yumoto&destinatio
 curl "http://localhost:8000/transit/stops/nearby?lat=37.095&lng=140.001&radius_m=1000"
 ```
 
+## GTFS data
+
+Real GTFS data is not committed (`data/gtfs/` is gitignored). The two public feeds (nasushiobara, nasutown) have a non-secret URL baked into `scripts/download_gtfs.py`, so no configuration is needed for them. The kanto_auto feed requires an API key:
+
+```bash
+cp .env.example .env   # then set KANTO_BUS_GTFS_API_KEY
+python scripts/download_gtfs.py            # download every resolvable feed
+python scripts/download_gtfs.py --feed nasushiobara
+python scripts/download_gtfs.py --status    # last-updated time and freshness per feed
+```
+
+Only the API key is secret — the kanto_auto endpoint and `agency_id` live in source. Any feed's URL can still be overridden via its `<SLUG>_GTFS_URL` env var (e.g. to point at a local test server) if needed.
+
+Each successful download records its `feed_info.txt` validity period and a checksum in `data/gtfs_manifest.json`, which is committed (unlike the raw GTFS files) so `git log` doubles as an update history.
+
 ## Documents
 
 - `docs/project-instruction.md`: original project instruction
