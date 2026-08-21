@@ -131,8 +131,21 @@ nasu-route search-bus \
 
 残作業:
 
-- 複数フィードを扱う場合のID prefix 方針
-- 実GTFS ZIPを読み込んだfixtureまたは手動検証
+- 複数フィードを扱う場合のID prefix 方針 → 下記「ID衝突調査結果」で調査済み。実装は未着手
+- 実GTFS ZIPを読み込んだfixtureまたは手動検証 → 完了（下記Phase 2セクション参照）
+
+### ID衝突調査結果（2026-08-21）
+
+3フィード（nasushiobara, nasutown, kanto_auto）間で `stop_id` / `route_id` / `trip_id` / `service_id` の衝突を調査。
+
+- `route_id` / `trip_id` / `service_id`: 3フィード間で衝突なし
+- `stop_id`: **nasushiobara ⇔ nasutown間で105件衝突**（nasushiobara 219件中、nasutown 116件中）。関東自動車は`S0904...`のように事業者コードがID自体に入っているため衝突なし。
+- 衝突している`stop_id`は同一停留所の共有ではなく、両フィードが独立に同じ連番体系（`1_01`, `10_01`など）を使っているだけの偶然の一致。停留所名・座標は全て不一致（例: `stop_id=1_01`は那須塩原市で「西那須野駅西口」、那須町で「追分」）。
+- 現状は`GTFSEngine`が1フィードずつしか扱わないため実害はないが、フィード横断のnearby検索や統合グラフ（Phase 3の`/plan/graph-data`）を実装する際は、各フィードのID（特に`stop_id`）に`nasushiobara:`のようなフィード名プレフィックスを付けて名前空間分離する方針にする。
+
+対応済み: `GTFSEngine.from_feeds({feed_name: gtfs_dir, ...})` を実装（`app/services/gtfs_engine.py`）。各フィードを個別に読み込んだ上で `stop_id` / `route_id` / `trip_id` / `service_id` を `"<feed_name>:"` でプレフィックスして結合する。`stop_times`・`trips`・`calendar`・`calendar_dates`もfeed内で整合するように同じプレフィックスを適用するため、`search_next_bus` / `nearby_stops` / `active_service_ids` はマージ後もそのまま動作する。3フィード実データ（nasushiobara + nasutown + kanto_auto、計4565停留所）で全IDがユニークになることを確認済み。`tests/fixtures/minimal_gtfs_other/`（IDを意図的に衝突させたfixture）でも検証。
+
+未対応（Phase 2 API・CLIへの結線）: `app/core/config.py` の `GTFS_DIR` は単一ディレクトリ前提のままで、`from_feeds`はまだAPI/CLIから呼ばれていない。複数フィード横断のnearby検索などが必要になった時点で結線する。
 - 那須塩原市などの実GTFS ZIP取得・展開は、データ更新確認を含む別工程として扱う
 
 ### TODO: 最新GTFSデータ自動取得・展開スクリプト

@@ -11,6 +11,7 @@ from app.services.gtfs_engine import (
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "minimal_gtfs"
+OTHER_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "minimal_gtfs_other"
 
 
 def test_search_next_bus_returns_up_to_three_direct_trips() -> None:
@@ -109,6 +110,52 @@ def test_search_next_bus_returns_empty_for_inactive_service_date() -> None:
     )
 
     assert results == []
+
+
+def test_from_feeds_prefixes_ids_to_avoid_collisions() -> None:
+    # Both fixtures independently use stop_id "stop_yumoto", route_id
+    # "route_nasu", trip_id "trip_1", and service_id "weekday" for
+    # unrelated stops/routes/trips.
+    merged = GTFSEngine.from_feeds({"nasu": FIXTURE_DIR, "other": OTHER_FIXTURE_DIR})
+
+    assert len(merged.stops) == 5  # 3 (FIXTURE_DIR) + 2 (OTHER_FIXTURE_DIR)
+    assert merged.stops["stop_id"].nunique() == 5
+    assert set(merged.stops["stop_id"]) >= {
+        "nasu:stop_yumoto",
+        "other:stop_yumoto",
+    }
+    assert set(merged.trips["trip_id"]) >= {"nasu:trip_1", "other:trip_1"}
+
+
+def test_from_feeds_search_next_bus_is_scoped_per_feed() -> None:
+    merged = GTFSEngine.from_feeds({"nasu": FIXTURE_DIR, "other": OTHER_FIXTURE_DIR})
+
+    nasu_results = merged.search_next_bus("nasu:stop_yumoto", "nasu:stop_ropeway", "10:00")
+    assert [r["trip_id"] for r in nasu_results] == ["nasu:trip_1", "nasu:trip_2", "nasu:trip_3"]
+
+    other_results = merged.search_next_bus("other:stop_yumoto", "other:stop_town_hall", "00:00")
+    assert [r["trip_id"] for r in other_results] == ["other:trip_1"]
+
+
+def test_from_feeds_unprefixed_id_matches_nothing() -> None:
+    merged = GTFSEngine.from_feeds({"nasu": FIXTURE_DIR, "other": OTHER_FIXTURE_DIR})
+
+    # The raw (unprefixed) ID that collides across feeds should not match
+    # either feed's stops once merged.
+    assert merged.search_next_bus("stop_yumoto", "stop_ropeway", "10:00") == []
+
+
+def test_from_feeds_merges_calendar_even_when_one_feed_lacks_calendar_dates() -> None:
+    merged = GTFSEngine.from_feeds({"nasu": FIXTURE_DIR, "other": OTHER_FIXTURE_DIR})
+
+    active = merged.active_service_ids("2026-08-17")
+
+    assert active == {"nasu:weekday", "other:weekday"}
+
+
+def test_from_feeds_requires_at_least_one_feed() -> None:
+    with pytest.raises(ValueError, match="at least one feed"):
+        GTFSEngine.from_feeds({})
 
 
 def test_parse_gtfs_time_to_minutes_allows_hour_over_24() -> None:

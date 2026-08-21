@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from math import asin, cos, radians, sin, sqrt
@@ -8,6 +9,19 @@ from pathlib import Path
 import pandas as pd
 
 EARTH_RADIUS_M = 6_371_000
+
+# Columns holding GTFS IDs, per table. Different operators' feeds often
+# reuse the same short IDs (e.g. stop_id "1_01") for unrelated stops, so
+# GTFSEngine.from_feeds() prefixes these with "<feed_name>:" to keep merged
+# feeds unambiguous.
+ID_COLUMNS: dict[str, tuple[str, ...]] = {
+    "stops": ("stop_id",),
+    "routes": ("route_id",),
+    "trips": ("route_id", "service_id", "trip_id"),
+    "stop_times": ("trip_id", "stop_id"),
+    "calendar": ("service_id",),
+    "calendar_dates": ("service_id",),
+}
 
 
 REQUIRED_GTFS_FILES = {
@@ -77,6 +91,36 @@ class GTFSEngine:
         self.calendar = self._read_optional_gtfs_file("calendar")
         self.calendar_dates = self._read_optional_gtfs_file("calendar_dates")
         self._prepare_tables()
+
+    @classmethod
+    def from_feeds(cls, feeds: Mapping[str, str | Path]) -> "GTFSEngine":
+        """Load and merge multiple GTFS feeds.
+
+        Every ID column (see ID_COLUMNS) is prefixed with "<feed_name>:" so
+        that unrelated stops/routes/trips from different operators can
+        never collide, even if their raw GTFS IDs happen to match.
+        """
+
+        if not feeds:
+            raise ValueError("from_feeds requires at least one feed")
+
+        engines = {feed_name: cls(gtfs_dir) for feed_name, gtfs_dir in feeds.items()}
+
+        merged = cls.__new__(cls)
+        merged.gtfs_dir = None
+        for table_name in ("stops", "routes", "trips", "stop_times", "calendar", "calendar_dates"):
+            frames = [
+                _prefix_id_columns(getattr(engine, table_name), ID_COLUMNS[table_name], feed_name)
+                for feed_name, engine in engines.items()
+                if not getattr(engine, table_name).empty
+            ]
+            setattr(
+                merged,
+                table_name,
+                pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(),
+            )
+
+        return merged
 
     def search_next_bus(
         self,
@@ -282,6 +326,18 @@ class GTFSEngine:
         if missing:
             columns = ", ".join(missing)
             raise ValueError(f"{file_name} is missing required columns: {columns}")
+
+
+def _prefix_id_columns(
+    frame: pd.DataFrame,
+    columns: tuple[str, ...],
+    feed_name: str,
+) -> pd.DataFrame:
+    frame = frame.copy()
+    for column in columns:
+        if column in frame.columns:
+            frame[column] = feed_name + ":" + frame[column]
+    return frame
 
 
 def haversine_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
