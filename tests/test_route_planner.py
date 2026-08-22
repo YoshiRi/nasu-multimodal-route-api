@@ -148,6 +148,51 @@ async def test_build_route_plan_defaults_dwell_minutes_when_omitted(
     assert "60分" in stay_step.details
 
 
+@pytest.mark.anyio
+async def test_build_route_plan_inserts_wait_step_when_early_for_reservation(
+    engine: GTFSEngine, spots: SpotRepository
+) -> None:
+    # Computed arrival at spot_nasu_ropeway is 10:40; require 10:50.
+    request = RoutePlanRequest(
+        base_location_id="spot_nasu_yumoto_onsen",
+        target_spot_ids=[{"spot_id": "spot_nasu_ropeway", "required_arrival_time": "10:50"}],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success"
+    modes = [step.mode for step in response.plans[0].steps]
+    assert modes == [
+        "walking", "bus", "walking", "wait", "stay", "walking", "bus", "walking",
+    ]
+    wait_step = next(step for step in response.plans[0].steps if step.mode == "wait")
+    assert wait_step.start_time == "10:40"
+    assert wait_step.end_time == "10:50"
+    stay_step = next(step for step in response.plans[0].steps if step.mode == "stay")
+    assert stay_step.start_time == "10:50"
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_returns_error_when_reservation_cannot_be_met(
+    engine: GTFSEngine, spots: SpotRepository
+) -> None:
+    # Computed arrival at spot_nasu_ropeway is 10:40; require 10:30 (too early to meet).
+    request = RoutePlanRequest(
+        base_location_id="spot_nasu_yumoto_onsen",
+        target_spot_ids=[{"spot_id": "spot_nasu_ropeway", "required_arrival_time": "10:30"}],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "error"
+    assert response.plans == []
+    assert "集合時刻" in response.ai_hint
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"

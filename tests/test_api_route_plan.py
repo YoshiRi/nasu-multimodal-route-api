@@ -116,6 +116,47 @@ def test_route_plan_rejects_non_positive_dwell_minutes() -> None:
     assert response.status_code == 422
 
 
+def test_route_plan_inserts_wait_step_for_reservation() -> None:
+    response = client.post(
+        "/plan/route-plan",
+        json={
+            "base_location_id": "spot_nasu_yumoto_onsen",
+            "target_spot_ids": [
+                {"spot_id": "spot_nasu_ropeway", "required_arrival_time": "10:50"}
+            ],
+            "departure_time": "10:00",
+            "departure_date": "2026-08-17",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "success"
+    assert [step["mode"] for step in body["plans"][0]["steps"]] == [
+        "walking", "bus", "walking", "wait", "stay", "walking", "bus", "walking",
+    ]
+
+
+def test_route_plan_returns_error_when_reservation_cannot_be_met() -> None:
+    response = client.post(
+        "/plan/route-plan",
+        json={
+            "base_location_id": "spot_nasu_yumoto_onsen",
+            "target_spot_ids": [
+                {"spot_id": "spot_nasu_ropeway", "required_arrival_time": "10:30"}
+            ],
+            "departure_time": "10:00",
+            "departure_date": "2026-08-17",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "error"
+    assert body["plans"] == []
+    assert "集合時刻" in body["ai_hint"]
+
+
 def test_route_plan_rejects_empty_target_list() -> None:
     response = client.post(
         "/plan/route-plan",

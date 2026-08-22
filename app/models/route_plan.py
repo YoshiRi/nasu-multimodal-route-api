@@ -19,6 +19,17 @@ class TargetSpot(BaseModel):
         ),
         examples=[90],
     )
+    required_arrival_time: str | None = Field(
+        None,
+        description=(
+            'Fixed meeting/reservation time at this spot, "HH:MM". If the '
+            "computed arrival is earlier, a wait step is inserted so the "
+            "stay starts exactly at this time. If the computed arrival "
+            "would be later, the plan is infeasible (status='error') "
+            "rather than silently missing the reservation."
+        ),
+        examples=["13:00"],
+    )
 
 
 class RoutePlanRequest(BaseModel):
@@ -54,7 +65,12 @@ class RoutePlanRequest(BaseModel):
 
 class ItineraryStep(BaseModel):
     step_order: int = Field(description="1-based position of this step in the itinerary.")
-    mode: Literal["bus", "walking", "stay"] = Field(description="How this step is carried out.")
+    mode: Literal["bus", "walking", "stay", "wait"] = Field(
+        description=(
+            "How this step is carried out. 'wait' means idle time before "
+            "a fixed reservation/meeting time (required_arrival_time)."
+        )
+    )
     start_time: str = Field(description='Step start time, "HH:MM".')
     end_time: str = Field(description='Step end time, "HH:MM".')
     title: str = Field(description="Short human-readable label for this step.")
@@ -71,7 +87,8 @@ class RoutePlanResponse(BaseModel):
         description=(
             "'success' if a feasible plan was found; 'error' if the "
             "request was well-formed but no feasible plan exists (e.g. "
-            "no bus available for a leg). Malformed requests (unknown "
+            "no bus available for a leg, or a required_arrival_time "
+            "reservation cannot be met). Malformed requests (unknown "
             "spot_id, bad time format) use HTTP 4xx instead of this field."
         )
     )

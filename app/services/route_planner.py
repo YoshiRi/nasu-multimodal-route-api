@@ -40,9 +40,17 @@ async def build_route_plan(
         target.dwell_minutes if target.dwell_minutes is not None else DEFAULT_DWELL_MINUTES
         for target in request.target_spot_ids
     ]
+    required_arrival_minutes = [
+        parse_gtfs_time_to_minutes(target.required_arrival_time)
+        if target.required_arrival_time is not None
+        else None
+        for target in request.target_spot_ids
+    ]
 
     try:
-        return await _compute_plan(base, targets, dwell_minutes, request, engine)
+        return await _compute_plan(
+            base, targets, dwell_minutes, required_arrival_minutes, request, engine
+        )
     except OrsRequestError:
         return RoutePlanResponse(
             status="error",
@@ -58,6 +66,7 @@ async def _compute_plan(
     base: Spot,
     targets: list[Spot],
     dwell_minutes: list[int],
+    required_arrival_minutes: list[int | None],
     request: RoutePlanRequest,
     engine: GTFSEngine,
 ) -> RoutePlanResponse:
@@ -80,6 +89,14 @@ async def _compute_plan(
         is_last_leg = index == len(waypoints) - 2
         if not is_last_leg:
             # index-th leg arrives at targets[index] (waypoints[index + 1]).
+            required = required_arrival_minutes[index]
+            if required is not None:
+                if cursor.minutes > required:
+                    return _missed_reservation_response(destination.name, required)
+                if cursor.minutes < required:
+                    steps.append(_wait_step(destination, required, cursor, step_order))
+                    step_order += 1
+
             steps.append(_stay_step(destination, dwell_minutes[index], cursor, step_order))
             step_order += 1
 
@@ -202,10 +219,34 @@ def _stay_step(spot: Spot, dwell_minutes: int, cursor: _Cursor, step_order: int)
     )
 
 
+def _wait_step(spot: Spot, required_minutes: int, cursor: _Cursor, step_order: int) -> ItineraryStep:
+    start = cursor.minutes
+    cursor.minutes = required_minutes
+    return ItineraryStep(
+        step_order=step_order,
+        mode="wait",
+        start_time=_format_minutes(start),
+        end_time=_format_minutes(cursor.minutes),
+        title=f"{spot.name}で待機",
+        details=(
+            f"{spot.name}に{_format_minutes(start)}到着。"
+            f"集合時刻{_format_minutes(required_minutes)}まで待機します。"
+        ),
+    )
+
+
 def _infeasible_response(num_targets: int) -> RoutePlanResponse:
     hint = (
         f"指定した時間内に{num_targets}件の訪問地を回れるバスが見つかりませんでした。"
         "訪問地の数を減らすか、出発時刻を早めるようユーザーに提案してください。"
+    )
+    return RoutePlanResponse(status="error", ai_hint=hint, plans=[])
+
+
+def _missed_reservation_response(spot_name: str, required_minutes: int) -> RoutePlanResponse:
+    hint = (
+        f"{spot_name}の集合時刻（{_format_minutes(required_minutes)}）に間に合いません。"
+        "出発時刻を早めるか、訪問順序・訪問地の数を見直すようユーザーに提案してください。"
     )
     return RoutePlanResponse(status="error", ai_hint=hint, plans=[])
 

@@ -360,6 +360,16 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 
 検証: `tests/test_route_planner.py`・`tests/test_api_route_plan.py`にカスタム滞在時間（90分）・デフォルト滞在時間（60分）・`dwell_minutes<=0`のバリデーションエラー（422）のテストを追加。`tests/fixtures/minimal_gtfs`に往復シナリオ用の復路便を`trip_reverse3`（15:00発）まで拡充（長めの滞在でも既存fixtureで往復が成立するようにするため）。`python -m pytest`で64 tests passed。
 
+### 追加: 集合時間（予約制約）の補助入力（2026-08-22）
+
+`TargetSpot`に`required_arrival_time: str | None`（"HH:MM"）を追加。予約・集合時刻の制約を表す。
+
+- 計算上の到着時刻が`required_arrival_time`より**早い**場合: `mode="wait"`のステップを挿入し、到着時刻から集合時刻まで待機してから`stay`を開始する（時刻はズレない）。
+- 計算上の到着時刻が`required_arrival_time`より**遅い**場合: 予約に間に合わないため、その時点で`status="error"`（`_missed_reservation_response`）を返し、`ai_hint`に集合時刻に間に合わない旨と対処案を含める。
+- `ItineraryStep.mode`に`"wait"`を追加（既存の`bus`/`walking`/`stay`と区別し、AIが「待機時間」であることを説明しやすくするため）。
+
+検証: `test_build_route_plan_inserts_wait_step_when_early_for_reservation`・`test_build_route_plan_returns_error_when_reservation_cannot_be_met`（および対応するAPIレベルテスト）を追加。`python -m pytest`で68 tests passed。
+
 ## 現時点の設計メモ
 
 - タクシーはGoogle Maps上の専用modeではなく、`driving` ETA + 独自料金モデルとして扱う。
