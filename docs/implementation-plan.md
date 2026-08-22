@@ -331,11 +331,11 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 
 ### 実装結果（2026-08-22）
 
-ステータス: 実装完了（バス＋徒歩、PoCスポットマスタで検証済み。実ORS_API_KEYでの動作は未検証）
+ステータス: 実装完了（バス＋徒歩、PoCスポットマスタ・実ORS_API_KEYとも検証済み）
 
 - スポットマスタは `data/spots/nasu_spots.json` にPoC用の3件（那須塩原駅・那須湯本温泉・那須ロープウェイ）を作成。座標は`tests/fixtures/minimal_gtfs/stops.txt`と一致させ、テストで最寄り停留所解決（`GTFSEngine.nearby_stops()`）がそのまま既存GTFSフィクスチャに紐づくようにした。`nearest_stop_id`は保持せず、常に動的解決する。
 - `app/services/spot_repository.py`: `SpotRepository`（JSON読み込み、`spot_id`未存在時は`SpotNotFoundError`）
-- `app/services/ors_client.py`: `get_walking_route()`（非同期、`httpx.AsyncClient`、GET `.../directions/foot-walking`）。**ORSの実APIキーでは未検証**。レスポンス形式はORS公式ドキュメントのGeoJSON構造（`features[0].properties.summary.{duration,distance}`）を前提にしており、実キー入手後に実レスポンスと突き合わせて確認する必要がある。
+- `app/services/ors_client.py`: `get_walking_route()`（非同期、`httpx.AsyncClient`、GET `.../directions/foot-walking`）。レスポンス形式はORS公式ドキュメントのGeoJSON構造（`features[0].properties.summary.{duration,distance}`）どおりで、実APIキーで動作確認済み（2026-08-22、下記「実ORS_API_KEYでの検証」参照）。
 - `app/services/route_planner.py`: `build_route_plan()`が本体。拠点→スポット1→スポット2→…→拠点の順に、各区間を「徒歩(スポット→最寄り停)→バス→徒歩(最寄り停→スポット)」として計算。バスが見つからない区間があれば直ちに`status="error"`＋`ai_hint`を返す。ORS呼び出し失敗（`OrsRequestError`）も同様に`status="error"`に変換する（500にしない）。滞在時間は固定`DWELL_MINUTES=60`分。最寄り停留所探索半径は`NEAREST_STOP_RADIUS_M=1500`m。
 - `app/models/route_plan.py`, `app/models/errors.py`（既存流用）, `app/api/route_plan.py`（`POST /plan/route-plan`）, `app/core/config.py`（`Settings.spots_file`、`SPOTS_FILE`環境変数）, `app/api/deps.py`（`get_spot_repository`）
 - `.env.example`に`ORS_API_KEY`・`GTFS_DIR`/`SPOTS_FILE`のコメントを追加
@@ -346,9 +346,15 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 - `python -m pytest` で60 tests passed
 - `uvicorn app.main:app`起動後、`/openapi.json`に`/plan/route-plan`が追加されていること、`ORS_API_KEY`未設定時に500ではなく`status="error"`のHTTP 200が返ること、未知の`spot_id`でHTTP 400が返ることを確認
 
+### 実ORS_API_KEYでの検証（2026-08-22）
+
+`.env`に実際に発行された`ORS_API_KEY`を設定し、`get_walking_route()`単体・`/plan/route-plan`エンドツーエンドの両方で実APIレスポンスを確認した。
+
+- `get_walking_route(37.0950, 140.0010, 37.1240, 139.9850)`（那須湯本温泉→那須ロープウェイ）で `WalkingRoute(duration_min=58, distance_m=4815.0)` が返り、実装時に前提していたレスポンス形式（`features[0].properties.summary.{duration,distance}`）は正しかったことを確認。パース処理の修正は不要だった。
+- fixtureのスポット座標はGTFS停留所座標と一致させてあるため、`/plan/route-plan`のE2E確認では徒歩区間が0分/0mで返るのは想定通り（同一座標間のクエリのため）。実スポットマスタでは実距離になる。
+
 残作業・未解決事項:
 
-- ORSの実APIキーでの動作確認（レスポンス形式の実地検証）
 - ORS呼び出し失敗時に`status="error"`とする設計は実装者判断で採用した。ユーザー未確認のため、要望と異なる場合は調整する
 - 最寄り停留所探索半径1500mはPoCの仮値
 - タクシーモードはスコープ外のまま

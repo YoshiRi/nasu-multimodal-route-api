@@ -1,9 +1,8 @@
 """OpenRouteService (ORS) client for walking directions.
 
 Response shape here follows ORS's documented GeoJSON directions contract
-(features[0].properties.summary.{duration,distance}). Not yet verified
-against a live ORS_API_KEY — re-check the parsing in get_walking_route()
-against a real response before relying on this in production.
+(features[0].properties.summary.{duration,distance}). Verified against a
+live ORS_API_KEY on 2026-08-22.
 """
 
 from __future__ import annotations
