@@ -32,7 +32,11 @@ def test_graph_data_returns_an_edge_per_ordered_pair() -> None:
     backward = next(
         e for e in edges if e["from_stop_id"] == "stop_ropeway" and e["to_stop_id"] == "stop_yumoto"
     )
-    assert [o["trip_id"] for o in backward["bus_options"]] == ["trip_reverse", "trip_reverse2"]
+    assert [o["trip_id"] for o in backward["bus_options"]] == [
+        "trip_reverse",
+        "trip_reverse2",
+        "trip_reverse3",
+    ]
 
 
 def test_graph_data_returns_empty_options_when_no_direct_trip() -> None:

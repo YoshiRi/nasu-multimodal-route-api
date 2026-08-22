@@ -5,20 +5,42 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+DEFAULT_DWELL_MINUTES = 60
+
+
+class TargetSpot(BaseModel):
+    spot_id: str = Field(description="Spot ID to visit.", examples=["spot_nasu_ropeway"])
+    dwell_minutes: int | None = Field(
+        None,
+        gt=0,
+        description=(
+            "Expected stay duration at this spot, in minutes. Omit to use "
+            f"the default ({DEFAULT_DWELL_MINUTES} minutes)."
+        ),
+        examples=[90],
+    )
+
+
 class RoutePlanRequest(BaseModel):
     base_location_id: str = Field(
         description="Spot ID of the starting and ending point.",
         examples=["station_nasushiobara"],
     )
-    target_spot_ids: list[str] = Field(
+    target_spot_ids: list[TargetSpot] = Field(
         min_length=1,
         max_length=10,
         description=(
-            "Spot IDs to visit. The current version visits them in the "
-            "given array order — no route optimization yet, so list them "
-            "in the order they should be visited."
+            "Spots to visit, each with an optional dwell_minutes. The "
+            "current version visits them in the given array order — no "
+            "route optimization yet, so list them in the order they "
+            "should be visited."
         ),
-        examples=[["spot_nasu_ropeway", "spot_nasu_yumoto_onsen"]],
+        examples=[
+            [
+                {"spot_id": "spot_nasu_ropeway", "dwell_minutes": 90},
+                {"spot_id": "spot_nasu_yumoto_onsen"},
+            ]
+        ],
     )
     departure_time: str = Field(
         description='Departure time from base_location_id, "HH:MM".',

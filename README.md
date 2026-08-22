@@ -70,10 +70,10 @@ cp .env.example .env   # then set ORS_API_KEY (free signup at openrouteservice.o
 uvicorn app.main:app --reload
 curl -X POST http://localhost:8000/plan/route-plan \
   -H "Content-Type: application/json" \
-  -d '{"base_location_id": "spot_nasu_yumoto_onsen", "target_spot_ids": ["spot_nasu_ropeway"], "departure_time": "10:00", "departure_date": "2026-08-17"}'
+  -d '{"base_location_id": "spot_nasu_yumoto_onsen", "target_spot_ids": [{"spot_id": "spot_nasu_ropeway", "dwell_minutes": 90}], "departure_time": "10:00", "departure_date": "2026-08-17"}'
 ```
 
-Spots (`base_location_id`/`target_spot_ids`) come from a small PoC master at `data/spots/nasu_spots.json` (`spot_id`/`name`/`lat`/`lng`; override with `SPOTS_FILE`) — not GTFS `stop_id`s. The nearest GTFS stop to each spot is resolved on the fly via `GTFSEngine.nearby_stops()`. Visit order currently follows `target_spot_ids` as given (no route optimization yet), and each stop gets a fixed 60-minute stay. `app/services/ors_client.py`'s response parsing follows ORS's documented contract but hasn't been checked against a live `ORS_API_KEY` yet.
+Spots (`base_location_id`/`target_spot_ids`) come from a small PoC master at `data/spots/nasu_spots.json` (`spot_id`/`name`/`lat`/`lng`; override with `SPOTS_FILE`) — not GTFS `stop_id`s. The nearest GTFS stop to each spot is resolved on the fly via `GTFSEngine.nearby_stops()`. Visit order currently follows `target_spot_ids` as given (no route optimization yet). Each target spot takes an optional `dwell_minutes` (defaults to 60 if omitted) for how long to stay there. `app/services/ors_client.py`'s response parsing follows ORS's documented contract but hasn't been checked against a live `ORS_API_KEY` yet.
 
 ## GTFS data
 

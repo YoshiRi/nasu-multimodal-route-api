@@ -350,9 +350,15 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 
 - ORSの実APIキーでの動作確認（レスポンス形式の実地検証）
 - ORS呼び出し失敗時に`status="error"`とする設計は実装者判断で採用した。ユーザー未確認のため、要望と異なる場合は調整する
-- `stay`の滞在時間固定60分・最寄り停留所探索半径1500mはPoCの仮値。スポットマスタに`dwell_minutes`等を持たせる拡張は未着手
+- 最寄り停留所探索半径1500mはPoCの仮値
 - タクシーモードはスコープ外のまま
 - スポットマスタは3件のPoCデータのみ。実データへの拡充は別途
+
+### 追加: 滞在時間の補助入力（2026-08-22）
+
+`target_spot_ids`を`list[str]`から`list[TargetSpot]`（`{spot_id: str, dwell_minutes: int | None}`）に変更。`dwell_minutes`省略時は`DEFAULT_DWELL_MINUTES=60`分を使う。`app/models/route_plan.py`の`DEFAULT_DWELL_MINUTES`定数、`app/services/route_planner.py`はターゲットごとの滞在時間リストを組み立てて各`stay`ステップに反映する。
+
+検証: `tests/test_route_planner.py`・`tests/test_api_route_plan.py`にカスタム滞在時間（90分）・デフォルト滞在時間（60分）・`dwell_minutes<=0`のバリデーションエラー（422）のテストを追加。`tests/fixtures/minimal_gtfs`に往復シナリオ用の復路便を`trip_reverse3`（15:00発）まで拡充（長めの滞在でも既存fixtureで往復が成立するようにするため）。`python -m pytest`で64 tests passed。
 
 ## 現時点の設計メモ
 

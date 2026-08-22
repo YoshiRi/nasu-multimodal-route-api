@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.models.route_plan import ItineraryStep, Plan, RoutePlanRequest, RoutePlanResponse
+from app.models.route_plan import (
+    DEFAULT_DWELL_MINUTES,
+    ItineraryStep,
+    Plan,
+    RoutePlanRequest,
+    RoutePlanResponse,
+)
 from app.services.gtfs_engine import GTFSEngine, parse_gtfs_time_to_minutes
 from app.services.ors_client import OrsRequestError, get_walking_route
 from app.services.spot_repository import Spot, SpotNotFoundError, SpotRepository
 
 NEAREST_STOP_RADIUS_M = 1500
-DWELL_MINUTES = 60
 
 
 class RoutePlanInputError(ValueError):
@@ -27,12 +32,17 @@ async def build_route_plan(
 ) -> RoutePlanResponse:
     try:
         base = spots.get(request.base_location_id)
-        targets = [spots.get(spot_id) for spot_id in request.target_spot_ids]
+        targets = [spots.get(target.spot_id) for target in request.target_spot_ids]
     except SpotNotFoundError as exc:
         raise RoutePlanInputError(f"Unknown spot_id: {exc}") from exc
 
+    dwell_minutes = [
+        target.dwell_minutes if target.dwell_minutes is not None else DEFAULT_DWELL_MINUTES
+        for target in request.target_spot_ids
+    ]
+
     try:
-        return await _compute_plan(base, targets, request, engine)
+        return await _compute_plan(base, targets, dwell_minutes, request, engine)
     except OrsRequestError:
         return RoutePlanResponse(
             status="error",
@@ -47,6 +57,7 @@ async def build_route_plan(
 async def _compute_plan(
     base: Spot,
     targets: list[Spot],
+    dwell_minutes: list[int],
     request: RoutePlanRequest,
     engine: GTFSEngine,
 ) -> RoutePlanResponse:
@@ -68,7 +79,8 @@ async def _compute_plan(
 
         is_last_leg = index == len(waypoints) - 2
         if not is_last_leg:
-            steps.append(_stay_step(destination, cursor, step_order))
+            # index-th leg arrives at targets[index] (waypoints[index + 1]).
+            steps.append(_stay_step(destination, dwell_minutes[index], cursor, step_order))
             step_order += 1
 
     title = f"{base.name}発 {' → '.join(target.name for target in targets)} 周遊プラン"
@@ -177,16 +189,16 @@ async def _walking_step(
     )
 
 
-def _stay_step(spot: Spot, cursor: _Cursor, step_order: int) -> ItineraryStep:
+def _stay_step(spot: Spot, dwell_minutes: int, cursor: _Cursor, step_order: int) -> ItineraryStep:
     start = cursor.minutes
-    cursor.minutes += DWELL_MINUTES
+    cursor.minutes += dwell_minutes
     return ItineraryStep(
         step_order=step_order,
         mode="stay",
         start_time=_format_minutes(start),
         end_time=_format_minutes(cursor.minutes),
         title=f"{spot.name}散策",
-        details=f"{spot.name}に{DWELL_MINUTES}分滞在します。",
+        details=f"{spot.name}に{dwell_minutes}分滞在します。",
     )
 
 

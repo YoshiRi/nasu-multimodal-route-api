@@ -38,7 +38,7 @@ def fake_walking_route(monkeypatch: pytest.MonkeyPatch):
 async def test_build_route_plan_success(engine: GTFSEngine, spots: SpotRepository) -> None:
     request = RoutePlanRequest(
         base_location_id="spot_nasu_yumoto_onsen",
-        target_spot_ids=["spot_nasu_ropeway"],
+        target_spot_ids=[{"spot_id": "spot_nasu_ropeway"}],
         departure_time="10:00",
         departure_date="2026-08-17",
     )
@@ -62,7 +62,7 @@ async def test_build_route_plan_returns_error_status_when_no_bus_available(
 ) -> None:
     request = RoutePlanRequest(
         base_location_id="station_nasushiobara",
-        target_spot_ids=["spot_nasu_ropeway"],
+        target_spot_ids=[{"spot_id": "spot_nasu_ropeway"}],
         departure_time="10:00",
         departure_date="2026-08-17",
     )
@@ -80,7 +80,7 @@ async def test_build_route_plan_raises_input_error_for_unknown_spot(
 ) -> None:
     request = RoutePlanRequest(
         base_location_id="does_not_exist",
-        target_spot_ids=["spot_nasu_ropeway"],
+        target_spot_ids=[{"spot_id": "spot_nasu_ropeway"}],
         departure_time="10:00",
         departure_date="2026-08-17",
     )
@@ -100,7 +100,7 @@ async def test_build_route_plan_returns_error_status_when_ors_fails(
 
     request = RoutePlanRequest(
         base_location_id="spot_nasu_yumoto_onsen",
-        target_spot_ids=["spot_nasu_ropeway"],
+        target_spot_ids=[{"spot_id": "spot_nasu_ropeway"}],
         departure_time="10:00",
         departure_date="2026-08-17",
     )
@@ -109,6 +109,43 @@ async def test_build_route_plan_returns_error_status_when_ors_fails(
 
     assert response.status == "error"
     assert response.plans == []
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_uses_custom_dwell_minutes(
+    engine: GTFSEngine, spots: SpotRepository
+) -> None:
+    request = RoutePlanRequest(
+        base_location_id="spot_nasu_yumoto_onsen",
+        target_spot_ids=[{"spot_id": "spot_nasu_ropeway", "dwell_minutes": 90}],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success"
+    stay_step = next(step for step in response.plans[0].steps if step.mode == "stay")
+    assert stay_step.start_time == "10:40"
+    assert stay_step.end_time == "12:10"
+    assert "90分" in stay_step.details
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_defaults_dwell_minutes_when_omitted(
+    engine: GTFSEngine, spots: SpotRepository
+) -> None:
+    request = RoutePlanRequest(
+        base_location_id="spot_nasu_yumoto_onsen",
+        target_spot_ids=[{"spot_id": "spot_nasu_ropeway"}],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    stay_step = next(step for step in response.plans[0].steps if step.mode == "stay")
+    assert "60分" in stay_step.details
 
 
 @pytest.fixture

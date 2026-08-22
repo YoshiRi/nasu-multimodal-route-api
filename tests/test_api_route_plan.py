@@ -32,7 +32,7 @@ def test_route_plan_success() -> None:
         "/plan/route-plan",
         json={
             "base_location_id": "spot_nasu_yumoto_onsen",
-            "target_spot_ids": ["spot_nasu_ropeway"],
+            "target_spot_ids": [{"spot_id": "spot_nasu_ropeway"}],
             "departure_time": "10:00",
             "departure_date": "2026-08-17",
         },
@@ -58,7 +58,7 @@ def test_route_plan_returns_200_with_error_status_when_infeasible() -> None:
         "/plan/route-plan",
         json={
             "base_location_id": "station_nasushiobara",
-            "target_spot_ids": ["spot_nasu_ropeway"],
+            "target_spot_ids": [{"spot_id": "spot_nasu_ropeway"}],
             "departure_time": "10:00",
             "departure_date": "2026-08-17",
         },
@@ -76,13 +76,44 @@ def test_route_plan_returns_400_for_unknown_spot() -> None:
         "/plan/route-plan",
         json={
             "base_location_id": "does_not_exist",
-            "target_spot_ids": ["spot_nasu_ropeway"],
+            "target_spot_ids": [{"spot_id": "spot_nasu_ropeway"}],
             "departure_time": "10:00",
             "departure_date": "2026-08-17",
         },
     )
 
     assert response.status_code == 400
+
+
+def test_route_plan_honors_custom_dwell_minutes() -> None:
+    response = client.post(
+        "/plan/route-plan",
+        json={
+            "base_location_id": "spot_nasu_yumoto_onsen",
+            "target_spot_ids": [{"spot_id": "spot_nasu_ropeway", "dwell_minutes": 90}],
+            "departure_time": "10:00",
+            "departure_date": "2026-08-17",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    stay_step = next(step for step in body["plans"][0]["steps"] if step["mode"] == "stay")
+    assert "90分" in stay_step["details"]
+
+
+def test_route_plan_rejects_non_positive_dwell_minutes() -> None:
+    response = client.post(
+        "/plan/route-plan",
+        json={
+            "base_location_id": "spot_nasu_yumoto_onsen",
+            "target_spot_ids": [{"spot_id": "spot_nasu_ropeway", "dwell_minutes": 0}],
+            "departure_time": "10:00",
+            "departure_date": "2026-08-17",
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_route_plan_rejects_empty_target_list() -> None:
