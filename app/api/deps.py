@@ -7,6 +7,7 @@ from fastapi import Depends
 
 from app.core.config import Settings, get_settings
 from app.services.gtfs_engine import GTFSEngine
+from app.services.spot_repository import SpotRepository
 
 
 def _feeds_cache_key(feeds: dict[str, Path]) -> tuple[tuple[str, str], ...]:
@@ -24,3 +25,12 @@ def _load_engine(cache_key: tuple[tuple[str, str], ...]) -> GTFSEngine:
 
 def get_gtfs_engine(settings: Settings = Depends(get_settings)) -> GTFSEngine:
     return _load_engine(_feeds_cache_key(settings.gtfs_feeds))
+
+
+@lru_cache
+def _load_spot_repository(spots_file: str) -> SpotRepository:
+    return SpotRepository(spots_file)
+
+
+def get_spot_repository(settings: Settings = Depends(get_settings)) -> SpotRepository:
+    return _load_spot_repository(str(settings.spots_file))

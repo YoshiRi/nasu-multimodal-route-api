@@ -19,12 +19,17 @@ DEFAULT_GTFS_DIR = REPO_ROOT / "tests" / "fixtures" / "minimal_gtfs"
 # up real data as soon as it's downloaded, with no extra configuration.
 GTFS_DATA_ROOT = REPO_ROOT / "data" / "gtfs"
 
+# PoC spot master (spot_id/name/lat/lng) used by /plan/route-plan. Override
+# with SPOTS_FILE once a real spot dataset is available.
+DEFAULT_SPOTS_FILE = REPO_ROOT / "data" / "spots" / "nasu_spots.json"
+
 
 @dataclass(frozen=True)
 class Settings:
     # feed_name -> GTFS directory. A single entry is loaded as-is
     # (unprefixed IDs); more than one is merged via GTFSEngine.from_feeds().
     gtfs_feeds: dict[str, Path]
+    spots_file: Path
 
 
 def discover_gtfs_feeds(data_root: Path = GTFS_DATA_ROOT) -> dict[str, Path]:
@@ -44,8 +49,9 @@ def discover_gtfs_feeds(data_root: Path = GTFS_DATA_ROOT) -> dict[str, Path]:
 @lru_cache
 def get_settings() -> Settings:
     override = os.environ.get("GTFS_DIR")
-    if override:
-        return Settings(gtfs_feeds={"default": Path(override)})
+    gtfs_feeds = (
+        {"default": Path(override)} if override else discover_gtfs_feeds() or {"default": DEFAULT_GTFS_DIR}
+    )
+    spots_file = Path(os.environ.get("SPOTS_FILE", str(DEFAULT_SPOTS_FILE)))
 
-    discovered = discover_gtfs_feeds()
-    return Settings(gtfs_feeds=discovered or {"default": DEFAULT_GTFS_DIR})
+    return Settings(gtfs_feeds=gtfs_feeds, spots_file=spots_file)

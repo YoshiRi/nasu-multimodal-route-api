@@ -298,6 +298,62 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 - `/non-transit/route`実装後、`GraphEdge`に徒歩・タクシーedgeを追加する
 - `openapi.json`を実際にAIエージェントに読み込ませた自律実行テストは未実施
 
+## Phase 4: AIコンシェルジュ向け一括ルート提案（route-plan）
+
+ステータス: 設計レビュー中（実装未着手）
+
+背景: 2026-08-22付けで、外部AIエージェント（AIトラベルコンシェルジュ）がFunction Calling経由で呼ぶ一括行程提案エンドポイントの実装指示を受けた。Phase 3の`/plan/graph-data`（全ペアのコストグラフをAIに渡し、行程の組み立てはAI側に委ねる設計）とは異なり、こちらはAPI側が1つの行程案（bus/walking/stayのステップ配列）を直接組み立てて返す、より上位のオーケストレーション層になる。両者は代替ではなく別用途として併存させる。
+
+### レビュー結果（実装者観点）
+
+合意（指示どおり採用）:
+
+- **`status`/`ai_hint`による自己修復パターン**: 「リクエストは正しいが行程が成立しない」場合はHTTP 500ではなくHTTP 200 + `status="error"` + 自然言語の`ai_hint`で返す設計に合意。ただし**リクエスト自体が不正な場合（未知のspot_id、不正な時刻形式など）は既存の`ErrorResponse`/`HTTPException`(4xx)パターンを維持**し、`status="error"`と混同しない。「入力エラー」と「入力は正しいが解なし」を明確に分けて実装する。
+- **脱Google Maps・OpenRouteService採用**: 費用面・公開時のスケーラビリティ面で妥当。`get_walking_route`は非同期関数（`httpx.AsyncClient`）とし、呼び出し元のルーターも`async def`にする。
+- **モック行程ロジック**（TSPなし、入力配列の順序どおりに拠点→スポット→拠点で1パターンのみ計算）: PoCとして妥当。ORS呼び出し回数もスポット数に比例する程度に収まり、無料枠のレート制限面でも安全な設計。
+- `.env.example`への`ORS_API_KEY`追加は、既存の秘密情報管理方針（`.env`はgitignore、実値はcommitしない、ログにキーを出さない）をそのまま踏襲する。
+
+実装者判断で調整する点（合意の上で、指示から変更して採用）:
+
+- **ファイル配置**: 指示にある`app/schemas.py`・`app/routers/planner.py`は、既存の`app/models/*.py`・`app/api/*.py`という確立済みの構成と食い違うため、既存構成に合わせて `app/models/route_plan.py` と `app/api/route_plan.py` にする。
+- **依存関係管理**: `requirements.txt`は使わない。本プロジェクトは`pyproject.toml`（setuptools）で依存管理しており、`fastapi`/`uvicorn`/`httpx`/`pydantic`は既に`[project.dependencies]`にあるため追加不要。新規に必要なのは`ORS_API_KEY`の設定のみ。
+- **エンドポイントパス**: `POST /api/route-plan`ではなく、既存の`/plan/graph-data`と同じ`plan`タグ・プレフィックスに揃えて `POST /plan/route-plan` にする（URL体系の一貫性）。
+- **リクエストフィールド名**: `date`は`datetime.date`と紛らわしく、既存API（`/transit/routes`・`/plan/graph-data`）は`departure_date`という名前を使っているため、それに合わせて`departure_date`に統一する。
+- `target_spot_ids`のField descriptionにある「システムが順序を最適化するため順不同」という説明は、実際のv1実装（配列順どおりに回るモック）と矛盾する。AIエージェント向けOpenAPI descriptionが実装と食い違うのは実害があるため、「現バージョンでは配列順で訪問します（並び替え最適化は未実装）」という記述に修正して実装する。
+- GTFSデータ取得は既存の`app/api/deps.py`の`get_gtfs_engine`（マルチフィード自動マージ済み）をそのまま再利用する。新規のGTFS読み込み経路は作らない。
+
+未確定・実装前にブロッカーとなる点（要ユーザー判断）:
+
+- **スポットマスタデータが存在しない**（最重要ブロッカー）: `base_location_id`/`target_spot_ids`はGTFSの`stop_id`ではなく観光地スポットのIDだが、本プロジェクトには現状スポットの緯度経度・名称を保持するマスタが一切ない。これは`docs/spec-review.md`の未決事項8番と同一の課題で、今回のPhase 4着手により仮説ではなく実際のブロッカーになった。実装には最低限 `{spot_id, name, lat, lng}` を持つデータソースが必要。なお、最寄りバス停は既存の`GTFSEngine.nearby_stops()`で動的に解決できるため、`nearest_stop_id`を事前計算・保持する必要はない。
+- ORS呼び出し失敗時（レート制限・タイムアウト等）の扱いが指示に明記されていない。`status="error"` + `ai_hint`パターンに寄せる想定でよいか要確認。
+- `stay`ステップの滞在時間を誰が/どう決めるか未定義。スポットマスタに`dwell_minutes`を持たせるか、固定値（例: 60分）で仮置きするか要確認。
+- タクシーモードはこのエンドポイントのスコープ外という理解でよいか（指示文に言及なし、Phase 2/3では`/non-transit/route`として別途ロック中）。
+
+### 実装結果（2026-08-22）
+
+ステータス: 実装完了（バス＋徒歩、PoCスポットマスタで検証済み。実ORS_API_KEYでの動作は未検証）
+
+- スポットマスタは `data/spots/nasu_spots.json` にPoC用の3件（那須塩原駅・那須湯本温泉・那須ロープウェイ）を作成。座標は`tests/fixtures/minimal_gtfs/stops.txt`と一致させ、テストで最寄り停留所解決（`GTFSEngine.nearby_stops()`）がそのまま既存GTFSフィクスチャに紐づくようにした。`nearest_stop_id`は保持せず、常に動的解決する。
+- `app/services/spot_repository.py`: `SpotRepository`（JSON読み込み、`spot_id`未存在時は`SpotNotFoundError`）
+- `app/services/ors_client.py`: `get_walking_route()`（非同期、`httpx.AsyncClient`、GET `.../directions/foot-walking`）。**ORSの実APIキーでは未検証**。レスポンス形式はORS公式ドキュメントのGeoJSON構造（`features[0].properties.summary.{duration,distance}`）を前提にしており、実キー入手後に実レスポンスと突き合わせて確認する必要がある。
+- `app/services/route_planner.py`: `build_route_plan()`が本体。拠点→スポット1→スポット2→…→拠点の順に、各区間を「徒歩(スポット→最寄り停)→バス→徒歩(最寄り停→スポット)」として計算。バスが見つからない区間があれば直ちに`status="error"`＋`ai_hint`を返す。ORS呼び出し失敗（`OrsRequestError`）も同様に`status="error"`に変換する（500にしない）。滞在時間は固定`DWELL_MINUTES=60`分。最寄り停留所探索半径は`NEAREST_STOP_RADIUS_M=1500`m。
+- `app/models/route_plan.py`, `app/models/errors.py`（既存流用）, `app/api/route_plan.py`（`POST /plan/route-plan`）, `app/core/config.py`（`Settings.spots_file`、`SPOTS_FILE`環境変数）, `app/api/deps.py`（`get_spot_repository`）
+- `.env.example`に`ORS_API_KEY`・`GTFS_DIR`/`SPOTS_FILE`のコメントを追加
+- テスト: `tests/test_spot_repository.py`, `tests/test_ors_client.py`（`httpx.MockTransport`でORSレスポンスをモック）, `tests/test_route_planner.py`, `tests/test_api_route_plan.py`。`tests/fixtures/minimal_gtfs`に午後の復路便`trip_reverse2`を追加（往復が成立する成功シナリオのテストに必要。既存テストへの影響は`tests/test_api_plan.py`の期待値更新のみ）。
+
+検証:
+
+- `python -m pytest` で60 tests passed
+- `uvicorn app.main:app`起動後、`/openapi.json`に`/plan/route-plan`が追加されていること、`ORS_API_KEY`未設定時に500ではなく`status="error"`のHTTP 200が返ること、未知の`spot_id`でHTTP 400が返ることを確認
+
+残作業・未解決事項:
+
+- ORSの実APIキーでの動作確認（レスポンス形式の実地検証）
+- ORS呼び出し失敗時に`status="error"`とする設計は実装者判断で採用した。ユーザー未確認のため、要望と異なる場合は調整する
+- `stay`の滞在時間固定60分・最寄り停留所探索半径1500mはPoCの仮値。スポットマスタに`dwell_minutes`等を持たせる拡張は未着手
+- タクシーモードはスコープ外のまま
+- スポットマスタは3件のPoCデータのみ。実データへの拡充は別途
+
 ## 現時点の設計メモ
 
 - タクシーはGoogle Maps上の専用modeではなく、`driving` ETA + 独自料金モデルとして扱う。

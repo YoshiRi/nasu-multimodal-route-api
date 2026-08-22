@@ -4,3 +4,4 @@ route_nasu,weekday,trip_2,那須ロープウェイ行
 route_nasu,weekday,trip_3,那須ロープウェイ行
 route_nasu,weekday,trip_4,那須ロープウェイ行
 route_nasu,weekday,trip_reverse,那須湯本行
+route_nasu,weekday,trip_reverse2,那須湯本行

@@ -2,7 +2,7 @@
 
 PoC backend for multimodal route planning in the Nasu area using GTFS bus data, walking routes, and taxi-like driving estimates.
 
-Current focus: Phase 3 — bus search (`/transit/stops/nearby`, `/transit/routes`) plus a batch multi-stop endpoint (`POST /plan/graph-data`) for AI agents, backed by the Phase 1 `GTFSEngine`. Walking/taxi (`/non-transit/route`) is deliberately locked out until a Google Maps API key is available, so graph-data edges are bus-only for now.
+Current focus: Phase 4 — bus search (`/transit/stops/nearby`, `/transit/routes`), a bus-only batch cost graph (`POST /plan/graph-data`), and a bus+walking itinerary builder for an AI travel concierge (`POST /plan/route-plan`, using OpenRouteService instead of Google Maps for walking legs). Taxi routing is out of scope for now.
 
 ## Development
 
@@ -60,6 +60,20 @@ curl -X POST http://localhost:8000/plan/graph-data \
 ```
 
 `POST /plan/graph-data` returns direct bus options for every ordered pair among 2-15 given `stop_ids` in one call, so an AI agent doesn't need one `/transit/routes` request per pair. It's bus-only for now (`mode` is always `"bus"`); walking/taxi edges will be added once `/non-transit/route` is unlocked.
+
+## Phase 4: route-plan (AI travel concierge)
+
+`POST /plan/route-plan` builds one bus+walking itinerary (base → each target spot in the given order → base), calling `GTFSEngine` for bus legs and [OpenRouteService](https://openrouteservice.org/) for walking legs. It's designed for an LLM agent, not a human: a well-formed request always returns HTTP 200 — `status: "success"` with a `plans` entry, or `status: "error"` with an `ai_hint` explaining what to change (e.g. too many spots for the remaining bus schedule) and no plans. Malformed requests (unknown spot ID, bad date) still return HTTP 4xx.
+
+```bash
+cp .env.example .env   # then set ORS_API_KEY (free signup at openrouteservice.org)
+uvicorn app.main:app --reload
+curl -X POST http://localhost:8000/plan/route-plan \
+  -H "Content-Type: application/json" \
+  -d '{"base_location_id": "spot_nasu_yumoto_onsen", "target_spot_ids": ["spot_nasu_ropeway"], "departure_time": "10:00", "departure_date": "2026-08-17"}'
+```
+
+Spots (`base_location_id`/`target_spot_ids`) come from a small PoC master at `data/spots/nasu_spots.json` (`spot_id`/`name`/`lat`/`lng`; override with `SPOTS_FILE`) — not GTFS `stop_id`s. The nearest GTFS stop to each spot is resolved on the fly via `GTFSEngine.nearby_stops()`. Visit order currently follows `target_spot_ids` as given (no route optimization yet), and each stop gets a fixed 60-minute stay. `app/services/ors_client.py`'s response parsing follows ORS's documented contract but hasn't been checked against a live `ORS_API_KEY` yet.
 
 ## GTFS data
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from app.api.plan import router as plan_router
+from app.api.route_plan import router as route_plan_router
 from app.api.transit import router as transit_router
 
 TAGS_METADATA = [
@@ -20,14 +21,15 @@ app = FastAPI(
     title="Nasu Multimodal Route API",
     description=(
         "PoC bus route search API for the Nasu area, backed by GTFS data. "
-        "Walking/taxi routing is out of scope for this phase."
+        "Taxi routing is out of scope for this phase."
     ),
-    version="0.2.0",
+    version="0.3.0",
     openapi_tags=TAGS_METADATA,
 )
 
 app.include_router(transit_router)
 app.include_router(plan_router)
+app.include_router(route_plan_router)
 
 
 @app.get("/health", summary="Liveness check")

@@ -1,0 +1,20 @@
+[
+  {
+    "spot_id": "station_nasushiobara",
+    "name": "那須塩原駅",
+    "lat": 36.9310,
+    "lng": 140.0200
+  },
+  {
+    "spot_id": "spot_nasu_yumoto_onsen",
+    "name": "那須湯本温泉",
+    "lat": 37.0950,
+    "lng": 140.0010
+  },
+  {
+    "spot_id": "spot_nasu_ropeway",
+    "name": "那須ロープウェイ",
+    "lat": 37.1240,
+    "lng": 139.9850
+  }
+]
