@@ -275,11 +275,28 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 
 ## Phase 3: OpenAPI整理
 
-ステータス: 未着手
+ステータス: 一部完了（バスのみ）
 
-- Pydantic v2モデルに `Field(description=...)` と examples を追加する
-- AIエージェントが使いやすいレスポンスモデルに整える
-- エラー応答を標準化する
+方針: `/plan/graph-data` はバス・徒歩・タクシー統合が本来の仕様だが、`/non-transit/route`がロック中のため、今回はバスのみで先行実装。徒歩・タクシー分はGoogle API key取得後にedgeへ追加する。
+
+対象・実装済み:
+
+- `app/models/errors.py`: 共通エラーレスポンス `ErrorResponse`（`detail: str`）。`/transit/routes`・`/plan/graph-data`の400レスポンスをOpenAPI上で明示（`responses={400: {"model": ErrorResponse}}`）
+- `app/models/transit.py` / `app/models/plan.py`: 全フィールドに`description`と`examples`を追加
+- 各エンドポイントに`summary`/`description`を追加、`app/main.py`に`openapi_tags`（transit/plan）とバージョン情報を追加
+- `POST /plan/graph-data`（`app/api/plan.py`）: リクエストの`stop_ids`（2〜15件）の全順序対について`search_next_bus`をバッチ実行し、`edges`配列として返す。各edgeは`mode: "bus"`固定、`bus_options`に直通便候補（最大3件、空配列もあり得る）を含む
+- `tests/test_api_plan.py`: 正常系（往復で異なる便）、直通便なし、`stop_ids`不足時422、重複ID時400を検証
+
+検証:
+
+- `python -m pytest` で44 tests passed
+- `uvicorn app.main:app`起動後、`/docs`・`/openapi.json`が200で、`tags`に`transit`/`plan`が反映されていることを確認
+- 実データ（3フィード統合）で`POST /plan/graph-data`にプレフィックス付き`stop_id`を渡し、正しい`edges`が返ることを確認
+
+残作業:
+
+- `/non-transit/route`実装後、`GraphEdge`に徒歩・タクシーedgeを追加する
+- `openapi.json`を実際にAIエージェントに読み込ませた自律実行テストは未実施
 
 ## 現時点の設計メモ
 

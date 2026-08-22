@@ -2,7 +2,7 @@
 
 PoC backend for multimodal route planning in the Nasu area using GTFS bus data, walking routes, and taxi-like driving estimates.
 
-Current focus: Phase 2 FastAPI routers for bus search (`/transit/stops/nearby`, `/transit/routes`), backed by the Phase 1 `GTFSEngine`. Walking/taxi (`/non-transit/route`) is deliberately locked out until a Google Maps API key is available.
+Current focus: Phase 3 — bus search (`/transit/stops/nearby`, `/transit/routes`) plus a batch multi-stop endpoint (`POST /plan/graph-data`) for AI agents, backed by the Phase 1 `GTFSEngine`. Walking/taxi (`/non-transit/route`) is deliberately locked out until a Google Maps API key is available, so graph-data edges are bus-only for now.
 
 ## Development
 
@@ -54,7 +54,12 @@ Open `http://localhost:8000/docs` for Swagger UI, or call directly:
 ```bash
 curl "http://localhost:8000/transit/routes?origin_stop_id=stop_yumoto&destination_stop_id=stop_ropeway&departure_time=10:00&departure_date=2026-08-17"
 curl "http://localhost:8000/transit/stops/nearby?lat=37.095&lng=140.001&radius_m=1000"
+curl -X POST http://localhost:8000/plan/graph-data \
+  -H "Content-Type: application/json" \
+  -d '{"stop_ids": ["stop_yumoto", "stop_ropeway"], "departure_time": "09:00"}'
 ```
+
+`POST /plan/graph-data` returns direct bus options for every ordered pair among 2-15 given `stop_ids` in one call, so an AI agent doesn't need one `/transit/routes` request per pair. It's bus-only for now (`mode` is always `"bus"`); walking/taxi edges will be added once `/non-transit/route` is unlocked.
 
 ## GTFS data
 

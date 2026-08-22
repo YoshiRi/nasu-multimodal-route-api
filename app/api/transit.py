@@ -5,27 +5,47 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_gtfs_engine
+from app.models.errors import ErrorResponse
 from app.models.transit import BusTripOption, NearbyStop
 from app.services.gtfs_engine import GTFSEngine
 
 router = APIRouter(prefix="/transit", tags=["transit"])
 
 
-@router.get("/stops/nearby", response_model=list[NearbyStop])
+@router.get(
+    "/stops/nearby",
+    response_model=list[NearbyStop],
+    summary="Find GTFS stops near a coordinate",
+    description="Return GTFS stops within radius_m of (lat, lng), nearest first.",
+)
 def get_nearby_stops(
-    lat: float = Query(description="Query point latitude."),
-    lng: float = Query(description="Query point longitude."),
+    lat: float = Query(description="Query point latitude.", examples=[36.8847]),
+    lng: float = Query(description="Query point longitude.", examples=[139.9866]),
     radius_m: int = Query(500, gt=0, description="Search radius in meters."),
     engine: GTFSEngine = Depends(get_gtfs_engine),
 ) -> list[dict[str, str | float]]:
     return engine.nearby_stops(lat=lat, lng=lng, radius_m=radius_m)
 
 
-@router.get("/routes", response_model=list[BusTripOption])
+@router.get(
+    "/routes",
+    response_model=list[BusTripOption],
+    summary="Search direct bus trips between two stops",
+    description=(
+        "Return up to 3 direct (no-transfer) bus trips departing "
+        "origin_stop_id at or after departure_time, earliest first. "
+        "Empty list if none exist."
+    ),
+    responses={400: {"model": ErrorResponse, "description": "Invalid request."}},
+)
 def get_transit_routes(
-    origin_stop_id: str = Query(description="Origin GTFS stop_id."),
-    destination_stop_id: str = Query(description="Destination GTFS stop_id."),
-    departure_time: str = Query(description='Departure time, "HH:MM" or "HH:MM:SS".'),
+    origin_stop_id: str = Query(description="Origin GTFS stop_id.", examples=["nasushiobara:1_01"]),
+    destination_stop_id: str = Query(
+        description="Destination GTFS stop_id.", examples=["nasushiobara:112_01"]
+    ),
+    departure_time: str = Query(
+        description='Departure time, "HH:MM" or GTFS "HH:MM:SS".', examples=["10:00"]
+    ),
     departure_date: date | None = Query(
         None, description="Optional service date used for calendar filtering."
     ),
