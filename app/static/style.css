@@ -1,0 +1,99 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+#panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1000;
+  width: 280px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  padding: 12px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+
+.panel-section {
+  margin-bottom: 14px;
+}
+
+.panel-section:last-child {
+  margin-bottom: 0;
+}
+
+.panel-section strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: #333;
+}
+
+#panel input[type="text"],
+#panel input[type="date"],
+#panel input[type="time"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+#panel button {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: 1px solid #999;
+  border-radius: 4px;
+  background: #f5f5f5;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#panel button:hover {
+  background: #e8e8e8;
+}
+
+#add-spot-toggle.active {
+  background: #ffdca8;
+  border-color: #d98c2b;
+}
+
+#stop-search-results {
+  max-height: 160px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.search-result {
+  padding: 4px 6px;
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: 3px;
+}
+
+.search-result:hover {
+  background: #eef4ff;
+}
+
+#add-spot-coords {
+  font-size: 12px;
+  color: #555;
+  margin: 4px 0;
+}
+
+#status {
+  font-size: 12px;
+  color: #666;
+  white-space: pre-wrap;
+}

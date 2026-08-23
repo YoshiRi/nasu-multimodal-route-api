@@ -17,10 +17,11 @@ EARTH_RADIUS_M = 6_371_000
 ID_COLUMNS: dict[str, tuple[str, ...]] = {
     "stops": ("stop_id",),
     "routes": ("route_id",),
-    "trips": ("route_id", "service_id", "trip_id"),
+    "trips": ("route_id", "service_id", "trip_id", "shape_id"),
     "stop_times": ("trip_id", "stop_id"),
     "calendar": ("service_id",),
     "calendar_dates": ("service_id",),
+    "shapes": ("shape_id",),
 }
 
 
@@ -34,6 +35,7 @@ REQUIRED_GTFS_FILES = {
 OPTIONAL_GTFS_FILES = {
     "calendar": "calendar.txt",
     "calendar_dates": "calendar_dates.txt",
+    "shapes": "shapes.txt",
 }
 
 WEEKDAY_COLUMNS = [
@@ -90,6 +92,7 @@ class GTFSEngine:
         self.stop_times = self._read_gtfs_file("stop_times")
         self.calendar = self._read_optional_gtfs_file("calendar")
         self.calendar_dates = self._read_optional_gtfs_file("calendar_dates")
+        self.shapes = self._read_optional_gtfs_file("shapes")
         self._prepare_tables()
 
     @classmethod
@@ -108,7 +111,9 @@ class GTFSEngine:
 
         merged = cls.__new__(cls)
         merged.gtfs_dir = None
-        for table_name in ("stops", "routes", "trips", "stop_times", "calendar", "calendar_dates"):
+        for table_name in (
+            "stops", "routes", "trips", "stop_times", "calendar", "calendar_dates", "shapes"
+        ):
             frames = [
                 _prefix_id_columns(getattr(engine, table_name), ID_COLUMNS[table_name], feed_name)
                 for feed_name, engine in engines.items()
@@ -210,6 +215,47 @@ class GTFSEngine:
             for row in stops.itertuples(index=False)
         ]
 
+    def route_shapes(self) -> list[dict[str, str | list[list[float]] | None]]:
+        """Return one polyline per shape_id, with the line_name of a route that uses it."""
+
+        if self.shapes.empty:
+            return []
+
+        shape_route = (
+            self.trips.loc[self.trips["shape_id"] != "", ["shape_id", "route_id"]]
+            .drop_duplicates(subset="shape_id")
+            .merge(self.routes, on="route_id", how="left")
+            .set_index("shape_id")
+        )
+
+        results: list[dict[str, str | list[list[float]] | None]] = []
+        shapes = self.shapes.sort_values(["shape_id", "shape_pt_sequence"])
+        for shape_id, group in shapes.groupby("shape_id", sort=False):
+            points = [
+                [float(row.shape_pt_lat), float(row.shape_pt_lon)]
+                for row in group.itertuples(index=False)
+            ]
+            route_id: str | None = None
+            line_name: str | None = None
+            if shape_id in shape_route.index:
+                route_row = shape_route.loc[shape_id]
+                route_id = str(route_row["route_id"])
+                line_name = _line_name(
+                    route_row.get("route_short_name"),
+                    route_row.get("route_long_name"),
+                    route_row["route_id"],
+                )
+            results.append(
+                {
+                    "shape_id": str(shape_id),
+                    "route_id": route_id,
+                    "line_name": line_name,
+                    "points": points,
+                }
+            )
+
+        return results
+
     def active_service_ids(self, service_date: str | date) -> set[str]:
         """Return GTFS service_ids active on service_date."""
 
@@ -290,6 +336,9 @@ class GTFSEngine:
         if "trip_headsign" not in self.trips.columns:
             self.trips["trip_headsign"] = ""
 
+        if "shape_id" not in self.trips.columns:
+            self.trips["shape_id"] = ""
+
         # Some feeds include GTFS parent stations (location_type=1) or other
         # stops that no trip ever visits — e.g. kanto_auto has ~1,400 such
         # entries. nearby_stops() must never return one of these, since no
@@ -310,6 +359,18 @@ class GTFSEngine:
                 self.calendar_dates,
                 "calendar_dates.txt",
                 {"service_id", "date", "exception_type"},
+            )
+
+        if not self.shapes.empty:
+            self._require_columns(
+                self.shapes,
+                "shapes.txt",
+                {"shape_id", "shape_pt_lat", "shape_pt_lon", "shape_pt_sequence"},
+            )
+            self.shapes = self.shapes.copy()
+            self.shapes["shape_pt_sequence"] = pd.to_numeric(
+                self.shapes["shape_pt_sequence"],
+                errors="raise",
             )
 
         self.stop_times = self.stop_times.copy()

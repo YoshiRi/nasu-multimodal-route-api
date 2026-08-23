@@ -1,0 +1,4 @@
+shape_id,shape_pt_lat,shape_pt_lon,shape_pt_sequence
+shape_nasu_line,37.0950,140.0010,1
+shape_nasu_line,37.1100,139.9900,2
+shape_nasu_line,37.1240,139.9850,3

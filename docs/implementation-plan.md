@@ -438,18 +438,41 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 - バス運賃はGTFSに含まれない可能性があるため、初期APIでは nullable とする。
 - 本番に近づける段階では、経路探索リクエストに `departure_date` を必須化する。
 
-## TODO: デバッグ・確認用のHuman Interface UI（2026-08-23メモ、未着手）
+## デバッグ・確認用のHuman Interface UI（一画面版）
 
-現在バックエンドAPI（FastAPI）のみで、動作確認はcurl/pythonスクリプト/実データ検証に頼っている。ユーザーより、次のステップとして人間が使うためのUIを設計したいとの要望を受けた。
+ステータス: 実装完了（ルーティング結果表示は次のステップとして対象外）
 
-要望されている画面構成（1画面に収めたい）:
+背景: バックエンドAPI（FastAPI）のみで、動作確認はcurl/pythonスクリプト/実データ検証に頼っていた。GTFSバグ調査中にユーザーから「那須塩原⇔那須高原エリアの路線カバレッジを地図で可視化して確認したい」という要望が出たことがきっかけで、ブラウザベースの確認用UIを作ることになった。
 
-- 現在ロードされている路線図の可視化
-- 駅名（停留所）の検索
+要望されている画面構成（1画面）:
+
+- 現在ロードされている路線図（停留所・shapes）の可視化
+- 停留所名の検索
 - スポットの可視化
 - スポットの追加
-- 日付・時刻の選択
+- 日付・時刻の選択（値の保持のみ）
 
-ルーティング結果（`route-plan`）は時系列表示＋地図上での選択が必要になるため、メイン画面とは別タブまたは別窓に分離するのが現時点の想定（要件はこれから詰める）。
+ルーティング結果（`route-plan`）の時系列＋地図表示は別タブ/別窓の次ステップとして今回は対象外。
 
-このタスクは、GTFSバグ調査中にユーザーから「那須塩原⇔那須高原エリアの路線カバレッジを地図で可視化して確認したい」という要望が出たことがきっかけ。バックエンド側の調査は`data/gtfs/`の生データを直接pandasで読む形で代替したが、今後同様の確認を繰り返すなら専用UIが効率的という判断。
+### 実装結果（2026-08-23）
+
+バックエンド:
+
+- `GTFSEngine`に`shapes.txt`対応を追加（`OPTIONAL_GTFS_FILES`・`ID_COLUMNS`に`shapes`を追加、`trips`の`ID_COLUMNS`に`shape_id`を追加）。新規`route_shapes()`メソッドが`shape_id`ごとの点列（`shape_pt_sequence`順）と、紐づく1つの`route_id`/`line_name`を返す。
+- `SpotRepository`に`list_all()`・`add(name, lat, lng)`を追加。`add()`は`spot_id`を`spot_<uuid8桁>`で自動生成し、一時ファイル書き出し→`os.replace`でJSONファイルへアトミックに永続化（`threading.Lock`で書き込みを直列化）。ユーザー承認どおりSQLiteは使わず、単一デバッグ用途向けの軽量実装とした。プロセス内シングルトン（`app/api/deps.py`の`lru_cache`）の内部状態を直接更新するため、追加後は`route-plan`からも即座に参照可能。
+- 新規API: `GET /transit/network`（`engine.stops`全件＋`route_shapes()`）、`GET /spots`・`POST /spots`（`app/api/spots.py`、新規タグ`spots`）。
+- `app/main.py`に`fastapi.staticfiles.StaticFiles`を`/ui`にマウント（新規Python依存なし）。
+
+フロントエンド（`app/static/`、ビルド不要）:
+
+- `index.html`/`app.js`/`style.css`。地図はLeaflet（CDN経由）＋OpenStreetMapタイル。
+- 起動時に`/transit/network`・`GET /spots`を取得し、停留所（`L.circleMarker`、canvasレンダラー）・路線shapes（`L.polyline`、route_idハッシュで色分け）・スポット（別色マーカー）を描画。
+- 停留所名検索はクライアント側の部分一致フィルタ（新規検索APIは追加せず、取得済みリストをそのまま使用）。
+- スポット追加は「地図クリックで追加」モードを切り替え、クリック地点の緯度経度でフォーム表示→`POST /spots`→即座に地図へ反映。
+- 日付・時刻inputは値を保持するのみ（次ステップのルーティングUIに引き継ぐ想定）。
+
+テスト: `tests/fixtures/minimal_gtfs/`に`shapes.txt`と`trips.txt`への`shape_id`列を追加。`tests/test_gtfs_engine.py`（`route_shapes()`の単体・フィードなし・`from_feeds`でのプレフィックス確認）、`tests/test_spot_repository.py`（`list_all`/`add`/永続化/既存データ非破壊）、`tests/test_api_transit.py`（`/transit/network`）、新規`tests/test_api_spots.py`（`GET`/`POST /spots`）を追加。`python -m pytest`で96 tests passed。
+
+検証: `claude-in-chrome`スキルで実際にブラウザを操作し、実データ（停留所3164件・路線形状299件）で地図描画・停留所検索（クリックでパン/ズーム＋ポップアップ）・スポット追加（クリック→フォーム→追加→地図即時反映）が動作することを確認。手動検証中に誤って`GTFS_DIR`のみ設定し`SPOTS_FILE`を未指定のままサーバーを起動し、本番の`data/spots/nasu_spots.json`にテスト用スポットを2回書き込んでしまったため、その都度手動で3件の元データに復元した（実装上の問題ではなく、検証時の環境変数指定漏れ。今後同様の手動検証をする際は`SPOTS_FILE`を必ず隔離すること）。
+
+残作業: ルーティング結果（`/plan/route-plan`実行と時系列＋地図表示）の別タブ/別窓UIは次のステップ。

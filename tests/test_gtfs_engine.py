@@ -153,6 +153,36 @@ def test_from_feeds_merges_calendar_even_when_one_feed_lacks_calendar_dates() ->
     assert active == {"nasu:weekday", "other:weekday"}
 
 
+def test_route_shapes_returns_points_in_sequence_order_with_line_name() -> None:
+    engine = GTFSEngine(FIXTURE_DIR)
+
+    shapes = engine.route_shapes()
+
+    assert shapes == [
+        {
+            "shape_id": "shape_nasu_line",
+            "route_id": "route_nasu",
+            "line_name": "那須線",
+            "points": [[37.0950, 140.0010], [37.1100, 139.9900], [37.1240, 139.9850]],
+        }
+    ]
+
+
+def test_route_shapes_returns_empty_list_when_no_shapes_file() -> None:
+    engine = GTFSEngine(OTHER_FIXTURE_DIR)
+
+    assert engine.route_shapes() == []
+
+
+def test_from_feeds_prefixes_shape_ids() -> None:
+    merged = GTFSEngine.from_feeds({"nasu": FIXTURE_DIR, "other": OTHER_FIXTURE_DIR})
+
+    shapes = merged.route_shapes()
+
+    assert [shape["shape_id"] for shape in shapes] == ["nasu:shape_nasu_line"]
+    assert shapes[0]["route_id"] == "nasu:route_nasu"
+
+
 def test_from_feeds_requires_at_least_one_feed() -> None:
     with pytest.raises(ValueError, match="at least one feed"):
         GTFSEngine.from_feeds({})

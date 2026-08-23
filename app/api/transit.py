@@ -6,10 +6,34 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_gtfs_engine
 from app.models.errors import ErrorResponse
+from app.models.network import NetworkResponse
 from app.models.transit import BusTripOption, NearbyStop
 from app.services.gtfs_engine import GTFSEngine
 
 router = APIRouter(prefix="/transit", tags=["transit"])
+
+
+@router.get(
+    "/network",
+    response_model=NetworkResponse,
+    summary="Get the full currently-loaded stop and route-shape network",
+    description=(
+        "Return every boardable stop and every route shape (polyline) in "
+        "the GTFS data currently loaded by the server, for visualizing "
+        "network coverage on a map."
+    ),
+)
+def get_transit_network(engine: GTFSEngine = Depends(get_gtfs_engine)) -> dict[str, list]:
+    stops = [
+        {
+            "stop_id": str(row.stop_id),
+            "stop_name": str(row.stop_name),
+            "stop_lat": float(row.stop_lat),
+            "stop_lon": float(row.stop_lon),
+        }
+        for row in engine.stops.itertuples(index=False)
+    ]
+    return {"stops": stops, "shapes": engine.route_shapes()}
 
 
 @router.get(

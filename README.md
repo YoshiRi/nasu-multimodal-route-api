@@ -84,6 +84,14 @@ curl -X POST http://localhost:8000/plan/route-plan \
 
 Spots (`base_location_id`/`target_spot_ids`) come from a small PoC master at `data/spots/nasu_spots.json` (`spot_id`/`name`/`lat`/`lng`; override with `SPOTS_FILE`) — not GTFS `stop_id`s. The nearest GTFS stop to each spot is resolved on the fly via `GTFSEngine.nearby_stops()`. Visit order currently follows `target_spot_ids` as given (no route optimization yet). Each target spot takes an optional `dwell_minutes` (defaults to 60 if omitted) for how long to stay there, and an optional `required_arrival_time` ("HH:MM") for a fixed reservation/meeting time: arriving early inserts a `"wait"` step so the stay starts exactly on time, arriving too late makes the whole plan infeasible (`status: "error"`) instead of silently missing it. `app/services/ors_client.py`'s response parsing has been verified against a live `ORS_API_KEY`.
 
+## Debug UI
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Open `http://localhost:8000/ui/` for a single-page Leaflet map (no build step, plain HTML/JS under `app/static/`): shows every currently-loaded GTFS stop and route shape (`GET /transit/network`), lets you search stops by name, shows spots (`GET /spots`), and lets you add a spot by clicking the map (`POST /spots`, persisted to `data/spots/*.json`). Date/time inputs just hold state for now — a separate routing-results view (timeline + map) is a planned next step, not built yet.
+
 ## GTFS data
 
 Real GTFS data is not committed (`data/gtfs/` is gitignored). The two public feeds (nasushiobara, nasutown) have a non-secret URL baked into `scripts/download_gtfs.py`, so no configuration is needed for them. The kanto_auto feed requires an API key:
