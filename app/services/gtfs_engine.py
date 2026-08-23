@@ -290,6 +290,14 @@ class GTFSEngine:
         if "trip_headsign" not in self.trips.columns:
             self.trips["trip_headsign"] = ""
 
+        # Some feeds include GTFS parent stations (location_type=1) or other
+        # stops that no trip ever visits — e.g. kanto_auto has ~1,400 such
+        # entries. nearby_stops() must never return one of these, since no
+        # bus can actually be boarded there and search_next_bus would find
+        # nothing from it.
+        boardable_stop_ids = set(self.stop_times["stop_id"])
+        self.stops = self.stops[self.stops["stop_id"].isin(boardable_stop_ids)].reset_index(drop=True)
+
         if not self.calendar.empty:
             self._require_columns(
                 self.calendar,

@@ -13,3 +13,5 @@ trip_reverse2,12:00:00,12:00:00,stop_ropeway,1
 trip_reverse2,12:20:00,12:20:00,stop_yumoto,2
 trip_reverse3,15:00:00,15:00:00,stop_ropeway,1
 trip_reverse3,15:20:00,15:20:00,stop_yumoto,2
+trip_station_extra,08:00:00,08:00:00,stop_station,1
+trip_station_extra,08:05:00,08:05:00,stop_extra,2

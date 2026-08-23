@@ -65,16 +65,27 @@ class RoutePlanRequest(BaseModel):
 
 class ItineraryStep(BaseModel):
     step_order: int = Field(description="1-based position of this step in the itinerary.")
-    mode: Literal["bus", "walking", "stay", "wait"] = Field(
+    mode: Literal["bus", "walking", "taxi", "stay", "wait"] = Field(
         description=(
             "How this step is carried out. 'wait' means idle time before "
-            "a fixed reservation/meeting time (required_arrival_time)."
+            "a fixed reservation/meeting time (required_arrival_time). "
+            "'taxi' is used instead of 'walking' when a spot has no GTFS "
+            "stop within reach, and the direct walking distance would be "
+            "unreasonably long."
         )
     )
     start_time: str = Field(description='Step start time, "HH:MM".')
     end_time: str = Field(description='Step end time, "HH:MM".')
     title: str = Field(description="Short human-readable label for this step.")
     details: str = Field(description="Longer human-readable description of this step.")
+    cost_jpy: int | None = Field(
+        None,
+        description=(
+            "Estimated cost in JPY for this step. Only set for 'taxi' "
+            "steps; null otherwise. See app/services/taxi_fare.py — a "
+            "placeholder formula, not confirmed against real local rates."
+        ),
+    )
 
 
 class Plan(BaseModel):

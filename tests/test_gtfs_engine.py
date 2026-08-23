@@ -118,8 +118,8 @@ def test_from_feeds_prefixes_ids_to_avoid_collisions() -> None:
     # unrelated stops/routes/trips.
     merged = GTFSEngine.from_feeds({"nasu": FIXTURE_DIR, "other": OTHER_FIXTURE_DIR})
 
-    assert len(merged.stops) == 5  # 3 (FIXTURE_DIR) + 2 (OTHER_FIXTURE_DIR)
-    assert merged.stops["stop_id"].nunique() == 5
+    assert len(merged.stops) == 6  # 4 boardable (FIXTURE_DIR) + 2 (OTHER_FIXTURE_DIR)
+    assert merged.stops["stop_id"].nunique() == 6
     assert set(merged.stops["stop_id"]) >= {
         "nasu:stop_yumoto",
         "other:stop_yumoto",

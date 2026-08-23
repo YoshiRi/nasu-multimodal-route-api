@@ -34,6 +34,23 @@ def fake_walking_route(monkeypatch: pytest.MonkeyPatch):
     return fake
 
 
+@pytest.fixture
+def fake_driving_route(monkeypatch: pytest.MonkeyPatch):
+    async def fake(lat1, lng1, lat2, lng2, *, client=None):
+        return RouteEstimate(duration_min=15, distance_m=5560.0)
+
+    monkeypatch.setattr(route_planner, "get_driving_route", fake)
+    return fake
+
+
+def _spot_repository_at(tmp_path: Path, spots: list[dict]) -> SpotRepository:
+    spots_file = tmp_path / "spots.json"
+    import json
+
+    spots_file.write_text(json.dumps(spots), encoding="utf-8")
+    return SpotRepository(spots_file)
+
+
 @pytest.mark.anyio
 async def test_build_route_plan_success(engine: GTFSEngine, spots: SpotRepository) -> None:
     request = RoutePlanRequest(
@@ -191,6 +208,64 @@ async def test_build_route_plan_returns_error_when_reservation_cannot_be_met(
     assert response.status == "error"
     assert response.plans == []
     assert "集合時刻" in response.ai_hint
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_walks_when_no_nearby_stop_and_distance_is_short(
+    tmp_path: Path, engine: GTFSEngine
+) -> None:
+    # No GTFS stop is within NEAREST_STOP_RADIUS_M of (0, 0); the two
+    # spots are ~556m apart (below MAX_DIRECT_WALKING_DISTANCE_M).
+    spots = _spot_repository_at(
+        tmp_path,
+        [
+            {"spot_id": "far_base", "name": "Far Base", "lat": 0.0, "lng": 0.0},
+            {"spot_id": "far_near_target", "name": "Near Target", "lat": 0.005, "lng": 0.0},
+        ],
+    )
+    request = RoutePlanRequest(
+        base_location_id="far_base",
+        target_spot_ids=[{"spot_id": "far_near_target"}],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success"
+    modes = [step.mode for step in response.plans[0].steps]
+    assert modes == ["walking", "stay", "walking"]
+    assert all(step.cost_jpy is None for step in response.plans[0].steps)
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_uses_taxi_when_no_nearby_stop_and_distance_is_long(
+    tmp_path: Path, engine: GTFSEngine, fake_driving_route
+) -> None:
+    # ~5.6km apart, above MAX_DIRECT_WALKING_DISTANCE_M — should use taxi.
+    spots = _spot_repository_at(
+        tmp_path,
+        [
+            {"spot_id": "far_base", "name": "Far Base", "lat": 0.0, "lng": 0.0},
+            {"spot_id": "far_target", "name": "Far Target", "lat": 0.05, "lng": 0.0},
+        ],
+    )
+    request = RoutePlanRequest(
+        base_location_id="far_base",
+        target_spot_ids=[{"spot_id": "far_target"}],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success"
+    modes = [step.mode for step in response.plans[0].steps]
+    assert modes == ["taxi", "stay", "taxi"]
+    taxi_step = response.plans[0].steps[0]
+    assert taxi_step.cost_jpy is not None
+    assert taxi_step.cost_jpy > 0
+    assert "円" in taxi_step.details
 
 
 @pytest.fixture

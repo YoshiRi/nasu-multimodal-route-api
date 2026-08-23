@@ -9,11 +9,18 @@ from app.models.route_plan import (
     RoutePlanRequest,
     RoutePlanResponse,
 )
-from app.services.gtfs_engine import GTFSEngine, parse_gtfs_time_to_minutes
-from app.services.ors_client import OrsRequestError, get_walking_route
+from app.services.gtfs_engine import GTFSEngine, haversine_distance_m, parse_gtfs_time_to_minutes
+from app.services.ors_client import OrsRequestError, get_driving_route, get_walking_route
 from app.services.spot_repository import Spot, SpotNotFoundError, SpotRepository
+from app.services.taxi_fare import estimate_fare_jpy
 
 NEAREST_STOP_RADIUS_M = 1500
+
+# Above this straight-line distance, a spot-to-spot "walking" leg (used
+# when a spot has no GTFS stop within NEAREST_STOP_RADIUS_M) switches to
+# taxi instead — walking the whole distance would otherwise be unrealistic
+# (e.g. a multi-hour walk).
+MAX_DIRECT_WALKING_DISTANCE_M = 3000
 
 
 class RoutePlanInputError(ValueError):
@@ -55,8 +62,8 @@ async def build_route_plan(
         return RoutePlanResponse(
             status="error",
             ai_hint=(
-                "徒歩ルートの計算に失敗しました。しばらくしてから再試行するよう"
-                "ユーザーに伝えてください。"
+                "徒歩・タクシー区間の経路計算に失敗しました。しばらくしてから"
+                "再試行するようユーザーに伝えてください。"
             ),
             plans=[],
         )
@@ -124,6 +131,15 @@ async def _build_leg(
         or destination_stop is None
         or origin_stop["stop_id"] == destination_stop["stop_id"]
     ):
+        direct_distance_m = haversine_distance_m(origin.lat, origin.lng, destination.lat, destination.lng)
+        if direct_distance_m > MAX_DIRECT_WALKING_DISTANCE_M:
+            return [
+                await _taxi_step(
+                    origin.name, origin.lat, origin.lng,
+                    destination.name, destination.lat, destination.lng,
+                    cursor, step_order,
+                )
+            ]
         return [
             await _walking_step(
                 origin.name, origin.lat, origin.lng,
@@ -203,6 +219,34 @@ async def _walking_step(
         end_time=_format_minutes(cursor.minutes),
         title="徒歩",
         details=f"{from_name}から{to_name}まで徒歩{route.duration_min}分（{route.distance_m:.0f}m）。",
+    )
+
+
+async def _taxi_step(
+    from_name: str,
+    from_lat: float,
+    from_lng: float,
+    to_name: str,
+    to_lat: float,
+    to_lng: float,
+    cursor: _Cursor,
+    step_order: int,
+) -> ItineraryStep:
+    route = await get_driving_route(from_lat, from_lng, to_lat, to_lng)
+    cost_jpy = estimate_fare_jpy(route.distance_m)
+    start = cursor.minutes
+    cursor.minutes += route.duration_min
+    return ItineraryStep(
+        step_order=step_order,
+        mode="taxi",
+        start_time=_format_minutes(start),
+        end_time=_format_minutes(cursor.minutes),
+        title="タクシー",
+        details=(
+            f"{from_name}から{to_name}までタクシーで{route.duration_min}分"
+            f"（{route.distance_m / 1000:.1f}km、概算{cost_jpy}円）。"
+        ),
+        cost_jpy=cost_jpy,
     )
 
 
