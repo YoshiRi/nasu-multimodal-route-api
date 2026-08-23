@@ -2,7 +2,7 @@
 
 PoC backend for multimodal route planning in the Nasu area using GTFS bus data, walking routes, and taxi-like driving estimates.
 
-Current focus: Phase 4 — bus search (`/transit/stops/nearby`, `/transit/routes`), a bus-only batch cost graph (`POST /plan/graph-data`), and a bus+walking itinerary builder for an AI travel concierge (`POST /plan/route-plan`, using OpenRouteService instead of Google Maps for walking legs). Taxi routing is out of scope for now.
+Current focus: bus search (`/transit/stops/nearby`, `/transit/routes`), walking/taxi point-to-point estimates (`GET /non-transit/route`), a bus-only batch cost graph (`POST /plan/graph-data`), and a bus+walking itinerary builder for an AI travel concierge (`POST /plan/route-plan`). Walking and taxi both go through OpenRouteService instead of Google Maps.
 
 ## Development
 
@@ -59,7 +59,16 @@ curl -X POST http://localhost:8000/plan/graph-data \
   -d '{"stop_ids": ["stop_yumoto", "stop_ropeway"], "departure_time": "09:00"}'
 ```
 
-`POST /plan/graph-data` returns direct bus options for every ordered pair among 2-15 given `stop_ids` in one call, so an AI agent doesn't need one `/transit/routes` request per pair. It's bus-only for now (`mode` is always `"bus"`); walking/taxi edges will be added once `/non-transit/route` is unlocked.
+`POST /plan/graph-data` returns direct bus options for every ordered pair among 2-15 given `stop_ids` in one call, so an AI agent doesn't need one `/transit/routes` request per pair. It's bus-only for now (`mode` is always `"bus"`); walking/taxi edges are not merged in yet even though `/non-transit/route` (below) is available.
+
+## Walking/taxi estimates
+
+```bash
+curl "http://localhost:8000/non-transit/route?origin_lat=37.095&origin_lng=140.001&dest_lat=37.124&dest_lng=139.985&mode=walking"
+curl "http://localhost:8000/non-transit/route?origin_lat=37.095&origin_lng=140.001&dest_lat=37.124&dest_lng=139.985&mode=taxi"
+```
+
+Both modes call OpenRouteService (`ORS_API_KEY` required); `taxi` adds a `cost_jpy` estimate from `app/services/taxi_fare.py` — **a placeholder formula, not confirmed against real Nasu-area taxi rates**. Every ORS call (from this endpoint and from `/plan/route-plan`) shares one in-process rate limit (`app/services/rate_limiter.py`, 30/min by default) to stay under ORS's free-tier quota; exceeding it returns HTTP 429, and an ORS-side failure returns HTTP 503.
 
 ## Phase 4: route-plan (AI travel concierge)
 

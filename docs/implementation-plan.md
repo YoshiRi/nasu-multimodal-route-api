@@ -375,8 +375,34 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 
 検証: `test_build_route_plan_inserts_wait_step_when_early_for_reservation`・`test_build_route_plan_returns_error_when_reservation_cannot_be_met`（および対応するAPIレベルテスト）を追加。`python -m pytest`で68 tests passed。
 
+## Phase 5: `/non-transit/route`（徒歩・タクシー独立エンドポイント）
+
+ステータス: 実装完了
+
+方針: 元のproject-instruction.mdはGoogle Maps `driving`を想定していたが、Phase 4で導入済みのORSを流用し、Google Maps API keyなしで完結させる。`/plan/route-plan`とは独立した単発の点対点エンドポイントとして実装し（呼び出し1回はO(1)、組み合わせ爆発の懸念なし）、実際に爆発しうるのは「区間ごとに全モードの組み合わせを試す」ような探索ロジックを将来route-planner側に足した場合のみと整理した上で着手。ユーザー指示により、ORS呼び出し自体には共有のレート制限を設けた。
+
+実装済み:
+
+- `app/services/rate_limiter.py`: `SlidingWindowRateLimiter`（インメモリ・単一プロセス向け、汎用）
+- `app/services/ors_client.py`: `WalkingRoute`を汎用`RouteEstimate`にリネーム。`get_walking_route`/`get_driving_route`は共通の`_get_route(profile, ...)`を呼ぶ形に統一し、実際のORS HTTPリクエストの直前でレート制限（デフォルト30回/分、ORS無料枠40回/分より保守的な値）を通す。エンドポイント単位ではなく**ORS呼び出しそのもの**にレート制限をかけているため、`/non-transit/route`と`/plan/route-plan`内部の呼び出し両方が同じ予算を共有する。制限超過時は`OrsRateLimitError`（`OrsRequestError`のサブクラス）。
+- `app/services/taxi_fare.py`: `estimate_fare_jpy(distance_m)`。**那須エリアの実際の料金は未確認のプレースホルダー**（初乗り500円/1km + 400円/km換算の一般的な日本のタクシー料金体系を模したもの）。実料金が分かり次第、定数を差し替える。
+- `app/models/non_transit.py`: `NonTransitRouteResponse`（`mode`, `distance_m`, `duration_min`, `cost_jpy`。徒歩は`cost_jpy=null`）
+- `app/api/non_transit.py`: `GET /non-transit/route`（`origin_lat/lng`, `dest_lat/lng`, `mode: walking|taxi`）。`OrsRateLimitError`→429、その他の`OrsRequestError`→503で返す。
+- `app/main.py`にルーター・`non-transit`タグを追加
+
+検証:
+
+- `python -m pytest`で81 tests passed（新規: `test_rate_limiter.py`, `test_taxi_fare.py`, `test_api_non_transit.py`、`test_ors_client.py`に`get_driving_route`とレート制限超過のテストを追加）
+- 実ORS_API_KEYで`/non-transit/route?mode=walking`と`mode=taxi`を実行し、那須湯本温泉↔那須ロープウェイ間で徒歩58分/4.8km（運賃null）、タクシー8分/6.1km（概算運賃2,550円）を確認
+- レート制限が実際に発火し`OrsRateLimitError`を送出することを確認
+
+残作業・未解決事項:
+
+- タクシー運賃モデルは仮の定数。実際の那須エリアの料金相場が分かれば差し替えが必要
+- `route-plan`側にタクシーを組み込む（バス不成立時のフォールバック等）かどうかは未着手・未決定
+- レート制限は単一プロセス内のインメモリ実装のため、複数ワーカー構成にする場合は共有ストア（Redis等）への置き換えが必要
+
 ## 現時点の設計メモ
 
-- タクシーはGoogle Maps上の専用modeではなく、`driving` ETA + 独自料金モデルとして扱う。
 - バス運賃はGTFSに含まれない可能性があるため、初期APIでは nullable とする。
 - 本番に近づける段階では、経路探索リクエストに `departure_date` を必須化する。

@@ -7,7 +7,7 @@ import pytest
 import app.services.route_planner as route_planner
 from app.models.route_plan import RoutePlanRequest
 from app.services.gtfs_engine import GTFSEngine
-from app.services.ors_client import OrsRequestError, WalkingRoute
+from app.services.ors_client import OrsRequestError, RouteEstimate
 from app.services.route_planner import RoutePlanInputError, build_route_plan
 from app.services.spot_repository import SpotRepository
 
@@ -28,7 +28,7 @@ def spots() -> SpotRepository:
 @pytest.fixture(autouse=True)
 def fake_walking_route(monkeypatch: pytest.MonkeyPatch):
     async def fake(lat1, lng1, lat2, lng2, *, client=None):
-        return WalkingRoute(duration_min=5, distance_m=400.0)
+        return RouteEstimate(duration_min=5, distance_m=400.0)
 
     monkeypatch.setattr(route_planner, "get_walking_route", fake)
     return fake

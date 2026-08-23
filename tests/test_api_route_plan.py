@@ -7,7 +7,7 @@ import app.services.route_planner as route_planner
 from app.api.deps import get_gtfs_engine, get_spot_repository
 from app.main import app
 from app.services.gtfs_engine import GTFSEngine
-from app.services.ors_client import WalkingRoute
+from app.services.ors_client import RouteEstimate
 from app.services.spot_repository import SpotRepository
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "minimal_gtfs"
@@ -22,7 +22,7 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def fake_walking_route(monkeypatch: pytest.MonkeyPatch):
     async def fake(lat1, lng1, lat2, lng2, *, client=None):
-        return WalkingRoute(duration_min=5, distance_m=400.0)
+        return RouteEstimate(duration_min=5, distance_m=400.0)
 
     monkeypatch.setattr(route_planner, "get_walking_route", fake)
 
