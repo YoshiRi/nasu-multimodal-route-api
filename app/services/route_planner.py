@@ -184,6 +184,10 @@ async def _build_leg(
                     f"{origin_stop['stop_name']}から{destination_stop['stop_name']}まで"
                     f"「{bus['line_name']}」で{bus['duration_min']}分。"
                 ),
+                from_lat=origin_stop["stop_lat"],
+                from_lng=origin_stop["stop_lon"],
+                to_lat=destination_stop["stop_lat"],
+                to_lng=destination_stop["stop_lon"],
             )
             final_walk_step, cursor.minutes = await _walking_step(
                 destination_stop["stop_name"], destination_stop["stop_lat"], destination_stop["stop_lon"],
@@ -236,6 +240,10 @@ async def _walking_step(
         end_time=_format_minutes(end_minutes),
         title="徒歩",
         details=f"{from_name}から{to_name}まで徒歩{route.duration_min}分（{route.distance_m:.0f}m）。",
+        from_lat=from_lat,
+        from_lng=from_lng,
+        to_lat=to_lat,
+        to_lng=to_lng,
     )
     return step, end_minutes
 
@@ -264,6 +272,10 @@ async def _taxi_step(
             f"（{route.distance_m / 1000:.1f}km、概算{cost_jpy}円）。"
         ),
         cost_jpy=cost_jpy,
+        from_lat=from_lat,
+        from_lng=from_lng,
+        to_lat=to_lat,
+        to_lng=to_lng,
     )
     return step, end_minutes
 
@@ -279,6 +291,10 @@ def _stay_step(
         end_time=_format_minutes(end_minutes),
         title=f"{spot.name}散策",
         details=f"{spot.name}に{dwell_minutes}分滞在します。",
+        from_lat=spot.lat,
+        from_lng=spot.lng,
+        to_lat=spot.lat,
+        to_lng=spot.lng,
     )
     return step, end_minutes
 
@@ -296,6 +312,10 @@ def _wait_step(
             f"{spot.name}に{_format_minutes(start_minutes)}到着。"
             f"集合時刻{_format_minutes(required_minutes)}まで待機します。"
         ),
+        from_lat=spot.lat,
+        from_lng=spot.lng,
+        to_lat=spot.lat,
+        to_lng=spot.lng,
     )
     return step, required_minutes
 

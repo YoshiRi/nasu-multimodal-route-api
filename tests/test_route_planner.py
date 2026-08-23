@@ -70,6 +70,15 @@ async def test_build_route_plan_success(engine: GTFSEngine, spots: SpotRepositor
     bus_steps = [step for step in plan.steps if step.mode == "bus"]
     assert bus_steps[0].title == "バス（那須線）"
     assert plan.steps[0].step_order == 1
+
+    first_walk = plan.steps[0]
+    assert (first_walk.from_lat, first_walk.from_lng) == pytest.approx((37.0950, 140.0010))
+    assert (first_walk.to_lat, first_walk.to_lng) == pytest.approx((37.0950, 140.0010))
+    assert (bus_steps[0].from_lat, bus_steps[0].from_lng) == pytest.approx((37.0950, 140.0010))
+    assert (bus_steps[0].to_lat, bus_steps[0].to_lng) == pytest.approx((37.1240, 139.9850))
+    stay_step = next(step for step in plan.steps if step.mode == "stay")
+    assert (stay_step.from_lat, stay_step.from_lng) == pytest.approx((37.1240, 139.9850))
+    assert (stay_step.to_lat, stay_step.to_lng) == pytest.approx((37.1240, 139.9850))
     assert plan.steps[-1].step_order == len(plan.steps)
 
 

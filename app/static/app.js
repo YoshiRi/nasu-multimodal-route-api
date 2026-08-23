@@ -75,6 +75,12 @@ function addSpotMarker(spot) {
   })
     .bindPopup(`<strong>${escapeHtml(spot.name)}</strong><br>${escapeHtml(spot.spot_id)}`)
     .addTo(map);
+  marker.on("click", () => {
+    if (!routeMode) return;
+    if (routeSelection.some((s) => s.spot_id === spot.spot_id)) return;
+    routeSelection.push(spot);
+    renderRouteSelection();
+  });
   spotMarkers.set(spot.spot_id, marker);
 }
 
@@ -125,6 +131,8 @@ addSpotToggle.addEventListener("click", () => {
   if (!addSpotMode) {
     addSpotForm.hidden = true;
     pendingLatLng = null;
+  } else if (routeMode) {
+    routeModeToggle.click();
   }
 });
 
@@ -168,8 +176,86 @@ document.getElementById("add-spot-submit").addEventListener("click", async () =>
   }
 });
 
-// Date/time inputs just hold state for the next-step routing UI.
 document.getElementById("plan-date").valueAsDate = new Date();
+
+// Route-creation flow: toggle a mode, click existing spot markers in
+// order (1st = base, rest = targets in visit order), then run
+// /plan/route-plan and open the results in a new tab.
+let routeMode = false;
+let routeSelection = [];
+const routeModeToggle = document.getElementById("route-mode-toggle");
+const routeSelectionListEl = document.getElementById("route-selection-list");
+const routeSearchButton = document.getElementById("route-search-submit");
+
+function renderRouteSelection() {
+  routeSelectionListEl.innerHTML = "";
+  routeSelection.forEach((spot, index) => {
+    const item = document.createElement("div");
+    item.className = "route-selection-item";
+
+    const label = document.createElement("span");
+    label.className = "label";
+    const badge = index === 0 ? "起点" : `${index}`;
+    label.innerHTML = `<span class="badge">${badge}</span>${escapeHtml(spot.name)}`;
+
+    const removeButton = document.createElement("button");
+    removeButton.textContent = "×";
+    removeButton.addEventListener("click", () => {
+      routeSelection.splice(index, 1);
+      renderRouteSelection();
+    });
+
+    item.appendChild(label);
+    item.appendChild(removeButton);
+    routeSelectionListEl.appendChild(item);
+  });
+  routeSearchButton.disabled = routeSelection.length < 2;
+}
+
+routeModeToggle.addEventListener("click", () => {
+  routeMode = !routeMode;
+  routeModeToggle.textContent = `ルート作成モード: ${routeMode ? "ON" : "OFF"}`;
+  routeModeToggle.classList.toggle("active", routeMode);
+  if (routeMode && addSpotMode) {
+    addSpotToggle.click();
+  }
+});
+
+routeSearchButton.addEventListener("click", async () => {
+  if (routeSelection.length < 2) return;
+  const [base, ...targets] = routeSelection;
+  const departureDate = document.getElementById("plan-date").value;
+  const departureTime = document.getElementById("plan-time").value;
+  if (!departureDate || !departureTime) {
+    setStatus("日付と時刻を指定してください");
+    return;
+  }
+
+  setStatus("ルートを検索中...");
+  try {
+    const response = await fetch("/plan/route-plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        base_location_id: base.spot_id,
+        target_spot_ids: targets.map((spot) => ({ spot_id: spot.spot_id })),
+        departure_time: departureTime,
+        departure_date: departureDate,
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      setStatus(`ルート検索に失敗しました: ${body.detail || response.status}`);
+      return;
+    }
+    const result = await response.json();
+    localStorage.setItem("latest_route_plan", JSON.stringify(result));
+    window.open("results.html", "_blank");
+    setStatus(result.status === "success" ? "ルートが見つかりました" : `不成立: ${result.ai_hint}`);
+  } catch (err) {
+    setStatus(`ルート検索に失敗しました: ${err}`);
+  }
+});
 
 loadNetwork();
 loadSpots();

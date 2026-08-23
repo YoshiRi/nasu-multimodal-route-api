@@ -1,0 +1,122 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+#header {
+  padding: 10px 16px;
+  border-bottom: 1px solid #ddd;
+  flex: 0 0 auto;
+}
+
+#header h1 {
+  font-size: 16px;
+  margin: 0 0 4px;
+}
+
+#plan-status {
+  font-size: 13px;
+  color: #555;
+  white-space: pre-wrap;
+}
+
+#split {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+#map-pane {
+  flex: 1 1 50%;
+  position: relative;
+  border-right: 1px solid #ddd;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+#timeline-pane {
+  flex: 1 1 50%;
+  overflow-y: auto;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.timeline-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.timeline-label {
+  width: 160px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 8px;
+  box-sizing: border-box;
+}
+
+.timeline-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 22px;
+  background: #f2f2f2;
+  border-radius: 4px;
+}
+
+.timeline-bar {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 3px;
+  min-width: 3px;
+}
+
+.timeline-time {
+  width: 100px;
+  flex: 0 0 auto;
+  padding-left: 8px;
+  color: #666;
+  box-sizing: border-box;
+}
+
+#timeline-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.timeline-details {
+  margin-top: 2px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #777;
+  padding-left: 168px;
+}

@@ -78,6 +78,10 @@ class ItineraryStep(BaseModel):
     end_time: str = Field(description='Step end time, "HH:MM".')
     title: str = Field(description="Short human-readable label for this step.")
     details: str = Field(description="Longer human-readable description of this step.")
+    from_lat: float = Field(description="Latitude at the start of this step.")
+    from_lng: float = Field(description="Longitude at the start of this step.")
+    to_lat: float = Field(description="Latitude at the end of this step.")
+    to_lng: float = Field(description="Longitude at the end of this step.")
     cost_jpy: int | None = Field(
         None,
         description=(

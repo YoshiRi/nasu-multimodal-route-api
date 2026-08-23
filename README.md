@@ -90,7 +90,9 @@ Spots (`base_location_id`/`target_spot_ids`) come from a small PoC master at `da
 uvicorn app.main:app --reload
 ```
 
-Open `http://localhost:8000/ui/` for a single-page Leaflet map (no build step, plain HTML/JS under `app/static/`): shows every currently-loaded GTFS stop and route shape (`GET /transit/network`), lets you search stops by name, shows spots (`GET /spots`), and lets you add a spot by clicking the map (`POST /spots`, persisted to `data/spots/*.json`). Date/time inputs just hold state for now — a separate routing-results view (timeline + map) is a planned next step, not built yet.
+Open `http://localhost:8000/ui/` for a single-page Leaflet map (no build step, plain HTML/JS under `app/static/`): shows every currently-loaded GTFS stop and route shape (`GET /transit/network`), lets you search stops by name, shows spots (`GET /spots`), and lets you add a spot by clicking the map (`POST /spots`, persisted to `data/spots/*.json`).
+
+Toggle "ルート作成モード" and click existing spot markers in order (1st = base, rest = targets) to build a `/plan/route-plan` request from the date/time inputs; the result opens in a new tab (`results.html`) with a left/right split — a map of the itinerary's legs and a horizontal timeline — sharing data via `localStorage`. Clicking a timeline row zooms the map to that step.
 
 ## GTFS data
 

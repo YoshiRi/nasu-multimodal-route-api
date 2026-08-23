@@ -64,9 +64,46 @@ html, body {
   background: #e8e8e8;
 }
 
-#add-spot-toggle.active {
+#add-spot-toggle.active,
+#route-mode-toggle.active {
   background: #ffdca8;
   border-color: #d98c2b;
+}
+
+#route-selection-list {
+  margin-top: 6px;
+}
+
+.route-selection-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.route-selection-item .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.route-selection-item .badge {
+  font-size: 11px;
+  color: #d98c2b;
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+.route-selection-item button {
+  margin: 0;
+  padding: 1px 6px;
+}
+
+#route-search-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 #stop-search-results {
