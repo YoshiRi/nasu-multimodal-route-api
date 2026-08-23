@@ -78,7 +78,16 @@ function addSpotMarker(spot) {
   marker.on("click", () => {
     if (!routeMode) return;
     if (routeSelection.some((s) => s.spot_id === spot.spot_id)) return;
-    routeSelection.push(spot);
+    routeSelection.push({
+      spot_id: spot.spot_id,
+      name: spot.name,
+      lat: spot.lat,
+      lng: spot.lng,
+      dwellMinutes: null,
+      requiredArrivalTime: "",
+      required: true,
+      settingsOpen: false,
+    });
     renderRouteSelection();
   });
   spotMarkers.set(spot.spot_id, marker);
@@ -190,13 +199,29 @@ const routeSearchButton = document.getElementById("route-search-submit");
 function renderRouteSelection() {
   routeSelectionListEl.innerHTML = "";
   routeSelection.forEach((spot, index) => {
+    const isBase = index === 0;
+
     const item = document.createElement("div");
     item.className = "route-selection-item";
 
     const label = document.createElement("span");
     label.className = "label";
-    const badge = index === 0 ? "起点" : `${index}`;
+    const badge = isBase ? "起点" : `${index}`;
     label.innerHTML = `<span class="badge">${badge}</span>${escapeHtml(spot.name)}`;
+
+    const buttons = document.createElement("span");
+    buttons.className = "row-buttons";
+
+    if (!isBase) {
+      const settingsButton = document.createElement("button");
+      settingsButton.textContent = "⚙";
+      settingsButton.title = "滞在時間・集合時刻・マスト設定";
+      settingsButton.addEventListener("click", () => {
+        spot.settingsOpen = !spot.settingsOpen;
+        renderRouteSelection();
+      });
+      buttons.appendChild(settingsButton);
+    }
 
     const removeButton = document.createElement("button");
     removeButton.textContent = "×";
@@ -204,12 +229,60 @@ function renderRouteSelection() {
       routeSelection.splice(index, 1);
       renderRouteSelection();
     });
+    buttons.appendChild(removeButton);
 
     item.appendChild(label);
-    item.appendChild(removeButton);
+    item.appendChild(buttons);
     routeSelectionListEl.appendChild(item);
+
+    if (!isBase && spot.settingsOpen) {
+      routeSelectionListEl.appendChild(buildSpotSettingsForm(spot));
+    }
   });
   routeSearchButton.disabled = routeSelection.length < 2;
+}
+
+function buildSpotSettingsForm(spot) {
+  const form = document.createElement("div");
+  form.className = "spot-settings";
+
+  const dwellLabel = document.createElement("label");
+  dwellLabel.textContent = "滞在時間（分）";
+  const dwellInput = document.createElement("input");
+  dwellInput.type = "number";
+  dwellInput.min = "1";
+  dwellInput.placeholder = "60";
+  dwellInput.value = spot.dwellMinutes ?? "";
+  dwellInput.addEventListener("input", () => {
+    const value = parseInt(dwellInput.value, 10);
+    spot.dwellMinutes = Number.isFinite(value) && value > 0 ? value : null;
+  });
+  dwellLabel.appendChild(dwellInput);
+
+  const reservationLabel = document.createElement("label");
+  reservationLabel.textContent = "集合時刻";
+  const reservationInput = document.createElement("input");
+  reservationInput.type = "time";
+  reservationInput.value = spot.requiredArrivalTime || "";
+  reservationInput.addEventListener("input", () => {
+    spot.requiredArrivalTime = reservationInput.value;
+  });
+  reservationLabel.appendChild(reservationInput);
+
+  const requiredLabel = document.createElement("label");
+  requiredLabel.textContent = "マスト（必須訪問）";
+  const requiredInput = document.createElement("input");
+  requiredInput.type = "checkbox";
+  requiredInput.checked = spot.required;
+  requiredInput.addEventListener("change", () => {
+    spot.required = requiredInput.checked;
+  });
+  requiredLabel.appendChild(requiredInput);
+
+  form.appendChild(dwellLabel);
+  form.appendChild(reservationLabel);
+  form.appendChild(requiredLabel);
+  return form;
 }
 
 routeModeToggle.addEventListener("click", () => {
@@ -231,6 +304,8 @@ routeSearchButton.addEventListener("click", async () => {
     return;
   }
 
+  const transferBufferMinutes = parseInt(document.getElementById("transfer-buffer").value, 10) || 0;
+
   setStatus("ルートを検索中...");
   try {
     const response = await fetch("/plan/route-plan", {
@@ -238,9 +313,15 @@ routeSearchButton.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         base_location_id: base.spot_id,
-        target_spot_ids: targets.map((spot) => ({ spot_id: spot.spot_id })),
+        target_spot_ids: targets.map((spot) => ({
+          spot_id: spot.spot_id,
+          dwell_minutes: spot.dwellMinutes || undefined,
+          required_arrival_time: spot.requiredArrivalTime || undefined,
+          required: spot.required,
+        })),
         departure_time: departureTime,
         departure_date: departureDate,
+        transfer_buffer_minutes: transferBufferMinutes,
       }),
     });
     if (!response.ok) {

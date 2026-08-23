@@ -46,25 +46,50 @@ async def build_route_plan(
 ) -> RoutePlanResponse:
     try:
         base = spots.get(request.base_location_id)
-        targets = [spots.get(target.spot_id) for target in request.target_spot_ids]
+        remaining = [(spots.get(target.spot_id), target) for target in request.target_spot_ids]
     except SpotNotFoundError as exc:
         raise RoutePlanInputError(f"Unknown spot_id: {exc}") from exc
 
-    dwell_minutes = [
-        target.dwell_minutes if target.dwell_minutes is not None else DEFAULT_DWELL_MINUTES
-        for target in request.target_spot_ids
-    ]
-    required_arrival_minutes = [
-        parse_gtfs_time_to_minutes(target.required_arrival_time)
-        if target.required_arrival_time is not None
-        else None
-        for target in request.target_spot_ids
-    ]
+    dropped_names: list[str] = []
 
     try:
-        return await _compute_plan(
-            base, targets, dwell_minutes, required_arrival_minutes, request, engine
-        )
+        while True:
+            if not remaining:
+                hint = (
+                    "必須でない訪問地をすべて除外しても行程が成立しませんでした。"
+                    "出発時刻を早めるか、必須の訪問地を見直すようユーザーに提案してください。"
+                )
+                return RoutePlanResponse(status="error", ai_hint=hint, plans=[])
+
+            targets = [spot for spot, _ in remaining]
+            dwell_minutes = [
+                target.dwell_minutes if target.dwell_minutes is not None else DEFAULT_DWELL_MINUTES
+                for _, target in remaining
+            ]
+            required_arrival_minutes = [
+                parse_gtfs_time_to_minutes(target.required_arrival_time)
+                if target.required_arrival_time is not None
+                else None
+                for _, target in remaining
+            ]
+
+            result = await _compute_plan(
+                base, targets, dwell_minutes, required_arrival_minutes, request, engine
+            )
+
+            if result.status == "success":
+                if dropped_names:
+                    result.ai_hint += (
+                        f" （{'、'.join(dropped_names)}は必須でないため行程に含められず除外しました）"
+                    )
+                return result
+
+            optional_indices = [i for i, (_, target) in enumerate(remaining) if not target.required]
+            if not optional_indices:
+                return result
+
+            dropped_spot, _ = remaining.pop(optional_indices[0])
+            dropped_names.append(dropped_spot.name)
     except OrsRequestError:
         return RoutePlanResponse(
             status="error",
@@ -92,7 +117,13 @@ async def _compute_plan(
     for index in range(len(waypoints) - 1):
         origin, destination = waypoints[index], waypoints[index + 1]
         leg_steps = await _build_leg(
-            origin, destination, cursor, engine, request.departure_date, step_order
+            origin,
+            destination,
+            cursor,
+            engine,
+            request.departure_date,
+            request.transfer_buffer_minutes,
+            step_order,
         )
         if leg_steps is None:
             return _infeasible_response(len(targets))
@@ -132,6 +163,7 @@ async def _build_leg(
     cursor: _Cursor,
     engine: GTFSEngine,
     departure_date: str,
+    transfer_buffer_minutes: int,
     step_order: int,
 ) -> list[ItineraryStep] | None:
     origin_candidates = _nearest_stop_candidates(origin, engine)
@@ -166,18 +198,31 @@ async def _build_leg(
             bus_options = engine.search_next_bus(
                 origin_stop_id=origin_stop["stop_id"],
                 dest_stop_id=destination_stop["stop_id"],
-                departure_time=_format_minutes(board_minutes),
+                departure_time=_format_minutes(board_minutes + transfer_buffer_minutes),
                 departure_date=departure_date,
             )
             if not bus_options:
                 continue
 
             bus = bus_options[0]
+            bus_departure_minutes = parse_gtfs_time_to_minutes(bus["departure_time"])
             bus_arrival_minutes = parse_gtfs_time_to_minutes(bus["arrival_time"])
+
+            leg_steps = [walk_to_stop]
+            next_order = step_order + 1
+            if bus_departure_minutes > board_minutes:
+                leg_steps.append(
+                    _bus_wait_step(
+                        origin_stop["stop_name"], origin_stop["stop_lat"], origin_stop["stop_lon"],
+                        board_minutes, bus_departure_minutes, next_order,
+                    )
+                )
+                next_order += 1
+
             bus_step = ItineraryStep(
-                step_order=step_order + 1,
+                step_order=next_order,
                 mode="bus",
-                start_time=_format_minutes(board_minutes),
+                start_time=_format_minutes(bus_departure_minutes),
                 end_time=_format_minutes(bus_arrival_minutes),
                 title=f"バス（{bus['line_name']}）",
                 details=(
@@ -189,12 +234,16 @@ async def _build_leg(
                 to_lat=destination_stop["stop_lat"],
                 to_lng=destination_stop["stop_lon"],
             )
+            leg_steps.append(bus_step)
+            next_order += 1
+
             final_walk_step, cursor.minutes = await _walking_step(
                 destination_stop["stop_name"], destination_stop["stop_lat"], destination_stop["stop_lon"],
                 destination.name, destination.lat, destination.lng,
-                bus_arrival_minutes, step_order + 2,
+                bus_arrival_minutes, next_order,
             )
-            return [walk_to_stop, bus_step, final_walk_step]
+            leg_steps.append(final_walk_step)
+            return leg_steps
 
     return None
 
@@ -278,6 +327,31 @@ async def _taxi_step(
         to_lng=to_lng,
     )
     return step, end_minutes
+
+
+def _bus_wait_step(
+    stop_name: str,
+    stop_lat: float,
+    stop_lon: float,
+    start_minutes: int,
+    departure_minutes: int,
+    step_order: int,
+) -> ItineraryStep:
+    return ItineraryStep(
+        step_order=step_order,
+        mode="wait",
+        start_time=_format_minutes(start_minutes),
+        end_time=_format_minutes(departure_minutes),
+        title=f"{stop_name}でバス待ち",
+        details=(
+            f"{stop_name}に{_format_minutes(start_minutes)}到着。"
+            f"バス発車（{_format_minutes(departure_minutes)}）まで待機します。"
+        ),
+        from_lat=stop_lat,
+        from_lng=stop_lon,
+        to_lat=stop_lat,
+        to_lng=stop_lon,
+    )
 
 
 def _stay_step(

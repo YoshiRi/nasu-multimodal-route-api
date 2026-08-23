@@ -43,13 +43,7 @@ def test_route_plan_success() -> None:
     assert body["status"] == "success"
     assert len(body["plans"]) == 1
     assert [step["mode"] for step in body["plans"][0]["steps"]] == [
-        "walking",
-        "bus",
-        "walking",
-        "stay",
-        "walking",
-        "bus",
-        "walking",
+        "walking", "wait", "bus", "walking", "stay", "walking", "wait", "bus", "walking",
     ]
 
 
@@ -133,7 +127,7 @@ def test_route_plan_inserts_wait_step_for_reservation() -> None:
     body = response.json()
     assert body["status"] == "success"
     assert [step["mode"] for step in body["plans"][0]["steps"]] == [
-        "walking", "bus", "walking", "wait", "stay", "walking", "bus", "walking",
+        "walking", "wait", "bus", "walking", "wait", "stay", "walking", "wait", "bus", "walking",
     ]
 
 

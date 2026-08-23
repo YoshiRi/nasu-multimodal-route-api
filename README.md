@@ -94,6 +94,8 @@ Open `http://localhost:8000/ui/` for a single-page Leaflet map (no build step, p
 
 Toggle "ルート作成モード" and click existing spot markers in order (1st = base, rest = targets) to build a `/plan/route-plan` request from the date/time inputs; the result opens in a new tab (`results.html`) with a left/right split — a map of the itinerary's legs and a horizontal timeline — sharing data via `localStorage`. Clicking a timeline row zooms the map to that step.
 
+Each selected target spot has a "⚙" settings toggle for `dwell_minutes`, `required_arrival_time` (reservation), and `required` (マスト — if unchecked, the spot is dropped and the rest replanned when it can't be fitted in, instead of failing the whole request). A global "バス乗り継ぎの余裕" input adds `transfer_buffer_minutes` of slack before every bus boarding, to absorb real-world schedule variance.
+
 ## GTFS data
 
 Real GTFS data is not committed (`data/gtfs/` is gitignored). The two public feeds (nasushiobara, nasutown) have a non-secret URL baked into `scripts/download_gtfs.py`, so no configuration is needed for them. The kanto_auto feed requires an API key:

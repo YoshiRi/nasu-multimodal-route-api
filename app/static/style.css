@@ -41,7 +41,8 @@ html, body {
 
 #panel input[type="text"],
 #panel input[type="date"],
-#panel input[type="time"] {
+#panel input[type="time"],
+#panel input[type="number"] {
   width: 100%;
   box-sizing: border-box;
   padding: 6px 8px;
@@ -99,6 +100,46 @@ html, body {
 .route-selection-item button {
   margin: 0;
   padding: 1px 6px;
+}
+
+.route-selection-item .row-buttons {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.spot-settings {
+  margin: 2px 0 8px;
+  padding: 6px 8px;
+  background: #f7f7f7;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.spot-settings label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.spot-settings label:last-child {
+  margin-bottom: 0;
+}
+
+.spot-settings input[type="number"],
+.spot-settings input[type="time"] {
+  width: 90px;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.spot-settings input[type="checkbox"] {
+  margin: 0;
 }
 
 #route-search-submit:disabled {

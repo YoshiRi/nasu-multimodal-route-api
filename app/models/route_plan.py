@@ -30,6 +30,15 @@ class TargetSpot(BaseModel):
         ),
         examples=["13:00"],
     )
+    required: bool = Field(
+        True,
+        description=(
+            "If true (default), this spot must be included or the whole "
+            "plan is infeasible. If false, this spot is dropped (and the "
+            "remaining spots re-planned) when it can't be fitted in, "
+            "instead of failing the whole request."
+        ),
+    )
 
 
 class RoutePlanRequest(BaseModel):
@@ -60,6 +69,19 @@ class RoutePlanRequest(BaseModel):
     departure_date: str = Field(
         description='Travel date, "YYYY-MM-DD", used for GTFS calendar filtering.',
         examples=["2026-08-22"],
+    )
+    transfer_buffer_minutes: int = Field(
+        0,
+        ge=0,
+        le=60,
+        description=(
+            "Extra minutes of slack required before boarding any bus, to "
+            "absorb real-world schedule variance (e.g. a slower-than-"
+            "estimated walk, or a bus running early). Applied to every "
+            "leg in the plan; 0 means no buffer (bus search uses the "
+            "computed arrival time as-is)."
+        ),
+        examples=[5],
     )
 
 

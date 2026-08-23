@@ -66,7 +66,11 @@ async def test_build_route_plan_success(engine: GTFSEngine, spots: SpotRepositor
     assert response.plans
     plan = response.plans[0]
     modes = [step.mode for step in plan.steps]
-    assert modes == ["walking", "bus", "walking", "stay", "walking", "bus", "walking"]
+    # A real wait-for-the-bus gap exists both ways (walk arrives before the
+    # bus departs), so each bus leg is walking -> wait -> bus -> walking.
+    assert modes == [
+        "walking", "wait", "bus", "walking", "stay", "walking", "wait", "bus", "walking",
+    ]
     bus_steps = [step for step in plan.steps if step.mode == "bus"]
     assert bus_steps[0].title == "バス（那須線）"
     assert plan.steps[0].step_order == 1
@@ -190,12 +194,16 @@ async def test_build_route_plan_inserts_wait_step_when_early_for_reservation(
 
     assert response.status == "success"
     modes = [step.mode for step in response.plans[0].steps]
+    # "wait" appears twice: once for the bus-boarding gap, once for the
+    # required_arrival_time reservation.
     assert modes == [
-        "walking", "bus", "walking", "wait", "stay", "walking", "bus", "walking",
+        "walking", "wait", "bus", "walking", "wait", "stay", "walking", "wait", "bus", "walking",
     ]
-    wait_step = next(step for step in response.plans[0].steps if step.mode == "wait")
-    assert wait_step.start_time == "10:40"
-    assert wait_step.end_time == "10:50"
+    reservation_wait = next(
+        step for step in response.plans[0].steps if step.mode == "wait" and "集合時刻" in step.details
+    )
+    assert reservation_wait.start_time == "10:40"
+    assert reservation_wait.end_time == "10:50"
     stay_step = next(step for step in response.plans[0].steps if step.mode == "stay")
     assert stay_step.start_time == "10:50"
 
@@ -313,6 +321,72 @@ async def test_build_route_plan_finds_bus_via_a_farther_but_connected_stop(tmp_p
     bus_steps = [step for step in response.plans[0].steps if step.mode == "bus"]
     assert bus_steps
     assert bus_steps[0].details.startswith("Origin Stop")
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_drops_optional_spot_that_does_not_fit(
+    engine: GTFSEngine, spots: SpotRepository
+) -> None:
+    # station_nasushiobara (stop_station) has no bus connection to the
+    # tourist route in this fixture; marking it non-required should drop
+    # it rather than fail the whole plan.
+    request = RoutePlanRequest(
+        base_location_id="spot_nasu_yumoto_onsen",
+        target_spot_ids=[
+            {"spot_id": "spot_nasu_ropeway"},
+            {"spot_id": "station_nasushiobara", "required": False},
+        ],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success"
+    assert "那須塩原駅" in response.ai_hint
+    plan_title = response.plans[0].title
+    assert "那須ロープウェイ" in plan_title
+    assert "那須塩原駅" not in plan_title
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_returns_error_when_all_optional_spots_dropped(
+    engine: GTFSEngine, spots: SpotRepository
+) -> None:
+    request = RoutePlanRequest(
+        base_location_id="spot_nasu_yumoto_onsen",
+        target_spot_ids=[{"spot_id": "station_nasushiobara", "required": False}],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "error"
+    assert response.plans == []
+    assert "必須でない訪問地をすべて除外" in response.ai_hint
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_applies_transfer_buffer_minutes(
+    engine: GTFSEngine, spots: SpotRepository
+) -> None:
+    # Without a buffer, trip_1 (departs 10:15) is boarded. A 15-minute
+    # buffer pushes the effective search time to 10:20, so trip_1 no
+    # longer qualifies and trip_2 (departs 10:50) is boarded instead.
+    request = RoutePlanRequest(
+        base_location_id="spot_nasu_yumoto_onsen",
+        target_spot_ids=[{"spot_id": "spot_nasu_ropeway"}],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+        transfer_buffer_minutes=15,
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success"
+    bus_steps = [step for step in response.plans[0].steps if step.mode == "bus"]
+    assert bus_steps[0].start_time == "10:50"
 
 
 @pytest.fixture
