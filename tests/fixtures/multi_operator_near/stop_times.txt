@@ -1,0 +1,3 @@
+trip_id,arrival_time,departure_time,stop_id,stop_sequence
+trip_isolated,08:00:00,08:00:00,stop_near_isolated,1
+trip_isolated,08:30:00,08:30:00,stop_other_isolated,2

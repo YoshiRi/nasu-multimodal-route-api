@@ -1,0 +1,3 @@
+stop_id,stop_name,stop_lat,stop_lon
+stop_near_isolated,Near Isolated Stop,0.00999,0.0
+stop_other_isolated,Other Isolated Stop,5.0,5.0

@@ -16,6 +16,13 @@ from app.services.taxi_fare import estimate_fare_jpy
 
 NEAREST_STOP_RADIUS_M = 1500
 
+# When a spot has more than one GTFS stop nearby, the single closest one
+# is not always usable (e.g. two operators serve the same area, and only
+# one of them actually runs a trip to the other endpoint — see
+# test_build_route_plan_finds_bus_via_a_farther_but_connected_stop). Try
+# up to this many nearest candidates per endpoint before giving up.
+MAX_STOP_CANDIDATES = 3
+
 # Above this straight-line distance, a spot-to-spot "walking" leg (used
 # when a spot has no GTFS stop within NEAREST_STOP_RADIUS_M) switches to
 # taxi instead — walking the whole distance would otherwise be unrealistic
@@ -101,10 +108,14 @@ async def _compute_plan(
                 if cursor.minutes > required:
                     return _missed_reservation_response(destination.name, required)
                 if cursor.minutes < required:
-                    steps.append(_wait_step(destination, required, cursor, step_order))
+                    wait_step, cursor.minutes = _wait_step(destination, required, cursor.minutes, step_order)
+                    steps.append(wait_step)
                     step_order += 1
 
-            steps.append(_stay_step(destination, dwell_minutes[index], cursor, step_order))
+            stay_step, cursor.minutes = _stay_step(
+                destination, dwell_minutes[index], cursor.minutes, step_order
+            )
+            steps.append(stay_step)
             step_order += 1
 
     title = f"{base.name}発 {' → '.join(target.name for target in targets)} 周遊プラン"
@@ -123,80 +134,87 @@ async def _build_leg(
     departure_date: str,
     step_order: int,
 ) -> list[ItineraryStep] | None:
-    origin_stop = _nearest_stop(origin, engine)
-    destination_stop = _nearest_stop(destination, engine)
+    origin_candidates = _nearest_stop_candidates(origin, engine)
+    destination_candidates = _nearest_stop_candidates(destination, engine)
 
-    if (
-        origin_stop is None
-        or destination_stop is None
-        or origin_stop["stop_id"] == destination_stop["stop_id"]
-    ):
-        direct_distance_m = haversine_distance_m(origin.lat, origin.lng, destination.lat, destination.lng)
-        if direct_distance_m > MAX_DIRECT_WALKING_DISTANCE_M:
-            return [
-                await _taxi_step(
-                    origin.name, origin.lat, origin.lng,
-                    destination.name, destination.lat, destination.lng,
-                    cursor, step_order,
-                )
-            ]
-        return [
-            await _walking_step(
+    if not origin_candidates or not destination_candidates:
+        step, cursor.minutes = await _direct_step(origin, destination, cursor.minutes, step_order)
+        return [step]
+
+    if origin_candidates[0]["stop_id"] == destination_candidates[0]["stop_id"]:
+        step, cursor.minutes = await _direct_step(origin, destination, cursor.minutes, step_order)
+        return [step]
+
+    # Cache each origin candidate's walking step so it's computed at most
+    # once even though it's evaluated against every destination candidate.
+    origin_walks: dict[str, tuple[ItineraryStep, int]] = {}
+
+    for origin_stop in origin_candidates:
+        stop_id = origin_stop["stop_id"]
+        if stop_id not in origin_walks:
+            origin_walks[stop_id] = await _walking_step(
                 origin.name, origin.lat, origin.lng,
-                destination.name, destination.lat, destination.lng,
-                cursor, step_order,
+                origin_stop["stop_name"], origin_stop["stop_lat"], origin_stop["stop_lon"],
+                cursor.minutes, step_order,
             )
-        ]
+        walk_to_stop, board_minutes = origin_walks[stop_id]
 
-    steps = [
-        await _walking_step(
-            origin.name, origin.lat, origin.lng,
-            origin_stop["stop_name"], origin_stop["stop_lat"], origin_stop["stop_lon"],
-            cursor, step_order,
-        )
-    ]
-    step_order += 1
+        for destination_stop in destination_candidates:
+            if origin_stop["stop_id"] == destination_stop["stop_id"]:
+                continue
 
-    bus_options = engine.search_next_bus(
-        origin_stop_id=origin_stop["stop_id"],
-        dest_stop_id=destination_stop["stop_id"],
-        departure_time=_format_minutes(cursor.minutes),
-        departure_date=departure_date,
-    )
-    if not bus_options:
-        return None
+            bus_options = engine.search_next_bus(
+                origin_stop_id=origin_stop["stop_id"],
+                dest_stop_id=destination_stop["stop_id"],
+                departure_time=_format_minutes(board_minutes),
+                departure_date=departure_date,
+            )
+            if not bus_options:
+                continue
 
-    bus = bus_options[0]
-    start = cursor.minutes
-    cursor.minutes = parse_gtfs_time_to_minutes(bus["arrival_time"])
-    steps.append(
-        ItineraryStep(
-            step_order=step_order,
-            mode="bus",
-            start_time=_format_minutes(start),
-            end_time=_format_minutes(cursor.minutes),
-            title=f"バス（{bus['line_name']}）",
-            details=(
-                f"{origin_stop['stop_name']}から{destination_stop['stop_name']}まで"
-                f"「{bus['line_name']}」で{bus['duration_min']}分。"
-            ),
-        )
-    )
-    step_order += 1
+            bus = bus_options[0]
+            bus_arrival_minutes = parse_gtfs_time_to_minutes(bus["arrival_time"])
+            bus_step = ItineraryStep(
+                step_order=step_order + 1,
+                mode="bus",
+                start_time=_format_minutes(board_minutes),
+                end_time=_format_minutes(bus_arrival_minutes),
+                title=f"バス（{bus['line_name']}）",
+                details=(
+                    f"{origin_stop['stop_name']}から{destination_stop['stop_name']}まで"
+                    f"「{bus['line_name']}」で{bus['duration_min']}分。"
+                ),
+            )
+            final_walk_step, cursor.minutes = await _walking_step(
+                destination_stop["stop_name"], destination_stop["stop_lat"], destination_stop["stop_lon"],
+                destination.name, destination.lat, destination.lng,
+                bus_arrival_minutes, step_order + 2,
+            )
+            return [walk_to_stop, bus_step, final_walk_step]
 
-    steps.append(
-        await _walking_step(
-            destination_stop["stop_name"], destination_stop["stop_lat"], destination_stop["stop_lon"],
-            destination.name, destination.lat, destination.lng,
-            cursor, step_order,
-        )
-    )
-    return steps
+    return None
 
 
-def _nearest_stop(spot: Spot, engine: GTFSEngine) -> dict[str, str | float] | None:
+def _nearest_stop_candidates(spot: Spot, engine: GTFSEngine) -> list[dict[str, str | float]]:
     nearby = engine.nearby_stops(lat=spot.lat, lng=spot.lng, radius_m=NEAREST_STOP_RADIUS_M)
-    return nearby[0] if nearby else None
+    return nearby[:MAX_STOP_CANDIDATES]
+
+
+async def _direct_step(
+    origin: Spot, destination: Spot, start_minutes: int, step_order: int
+) -> tuple[ItineraryStep, int]:
+    direct_distance_m = haversine_distance_m(origin.lat, origin.lng, destination.lat, destination.lng)
+    if direct_distance_m > MAX_DIRECT_WALKING_DISTANCE_M:
+        return await _taxi_step(
+            origin.name, origin.lat, origin.lng,
+            destination.name, destination.lat, destination.lng,
+            start_minutes, step_order,
+        )
+    return await _walking_step(
+        origin.name, origin.lat, origin.lng,
+        destination.name, destination.lat, destination.lng,
+        start_minutes, step_order,
+    )
 
 
 async def _walking_step(
@@ -206,20 +224,20 @@ async def _walking_step(
     to_name: str,
     to_lat: float,
     to_lng: float,
-    cursor: _Cursor,
+    start_minutes: int,
     step_order: int,
-) -> ItineraryStep:
+) -> tuple[ItineraryStep, int]:
     route = await get_walking_route(from_lat, from_lng, to_lat, to_lng)
-    start = cursor.minutes
-    cursor.minutes += route.duration_min
-    return ItineraryStep(
+    end_minutes = start_minutes + route.duration_min
+    step = ItineraryStep(
         step_order=step_order,
         mode="walking",
-        start_time=_format_minutes(start),
-        end_time=_format_minutes(cursor.minutes),
+        start_time=_format_minutes(start_minutes),
+        end_time=_format_minutes(end_minutes),
         title="徒歩",
         details=f"{from_name}から{to_name}まで徒歩{route.duration_min}分（{route.distance_m:.0f}m）。",
     )
+    return step, end_minutes
 
 
 async def _taxi_step(
@@ -229,18 +247,17 @@ async def _taxi_step(
     to_name: str,
     to_lat: float,
     to_lng: float,
-    cursor: _Cursor,
+    start_minutes: int,
     step_order: int,
-) -> ItineraryStep:
+) -> tuple[ItineraryStep, int]:
     route = await get_driving_route(from_lat, from_lng, to_lat, to_lng)
     cost_jpy = estimate_fare_jpy(route.distance_m)
-    start = cursor.minutes
-    cursor.minutes += route.duration_min
-    return ItineraryStep(
+    end_minutes = start_minutes + route.duration_min
+    step = ItineraryStep(
         step_order=step_order,
         mode="taxi",
-        start_time=_format_minutes(start),
-        end_time=_format_minutes(cursor.minutes),
+        start_time=_format_minutes(start_minutes),
+        end_time=_format_minutes(end_minutes),
         title="タクシー",
         details=(
             f"{from_name}から{to_name}までタクシーで{route.duration_min}分"
@@ -248,35 +265,39 @@ async def _taxi_step(
         ),
         cost_jpy=cost_jpy,
     )
+    return step, end_minutes
 
 
-def _stay_step(spot: Spot, dwell_minutes: int, cursor: _Cursor, step_order: int) -> ItineraryStep:
-    start = cursor.minutes
-    cursor.minutes += dwell_minutes
-    return ItineraryStep(
+def _stay_step(
+    spot: Spot, dwell_minutes: int, start_minutes: int, step_order: int
+) -> tuple[ItineraryStep, int]:
+    end_minutes = start_minutes + dwell_minutes
+    step = ItineraryStep(
         step_order=step_order,
         mode="stay",
-        start_time=_format_minutes(start),
-        end_time=_format_minutes(cursor.minutes),
+        start_time=_format_minutes(start_minutes),
+        end_time=_format_minutes(end_minutes),
         title=f"{spot.name}散策",
         details=f"{spot.name}に{dwell_minutes}分滞在します。",
     )
+    return step, end_minutes
 
 
-def _wait_step(spot: Spot, required_minutes: int, cursor: _Cursor, step_order: int) -> ItineraryStep:
-    start = cursor.minutes
-    cursor.minutes = required_minutes
-    return ItineraryStep(
+def _wait_step(
+    spot: Spot, required_minutes: int, start_minutes: int, step_order: int
+) -> tuple[ItineraryStep, int]:
+    step = ItineraryStep(
         step_order=step_order,
         mode="wait",
-        start_time=_format_minutes(start),
-        end_time=_format_minutes(cursor.minutes),
+        start_time=_format_minutes(start_minutes),
+        end_time=_format_minutes(required_minutes),
         title=f"{spot.name}で待機",
         details=(
-            f"{spot.name}に{_format_minutes(start)}到着。"
+            f"{spot.name}に{_format_minutes(start_minutes)}到着。"
             f"集合時刻{_format_minutes(required_minutes)}まで待機します。"
         ),
     )
+    return step, required_minutes
 
 
 def _infeasible_response(num_targets: int) -> RoutePlanResponse:
