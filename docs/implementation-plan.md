@@ -269,8 +269,8 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 
 残作業:
 
-- `/non-transit/route`（Google Maps Directions API連携）はGoogle API key入手後に着手
-- 実GTFSデータを `data/gtfs/` に配置し、`GTFS_DIR` を向け替えて動作確認
+- （2026-08-23時点で完了: `/non-transit/route`はGoogle Mapsではなく既存のORS連携で実装済み。詳細はPhase 5参照）
+- （完了: 実GTFSデータは`data/gtfs/`に配置済み、`GTFS_DIR`未設定時は自動検出される）
 
 ## Phase 3: OpenAPI整理
 
@@ -356,7 +356,7 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 
 - ORS呼び出し失敗時に`status="error"`とする設計は実装者判断で採用した。ユーザー未確認のため、要望と異なる場合は調整する
 - 最寄り停留所探索半径1500mはPoCの仮値
-- タクシーモードはスコープ外のまま
+- （完了: タクシーは2026-08-23に「最寄り停留所なし・徒歩3000m超」時のフォールバックとして追加済み）
 - スポットマスタは3件のPoCデータのみ。実データへの拡充は別途
 
 ### 追加: 滞在時間の補助入力（2026-08-22）
