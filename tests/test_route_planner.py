@@ -53,9 +53,13 @@ def _spot_repository_at(tmp_path: Path, spots: list[dict]) -> SpotRepository:
 
 @pytest.mark.anyio
 async def test_build_route_plan_success(engine: GTFSEngine, spots: SpotRepository) -> None:
+    # A round trip: base_location_id listed again as the final target.
     request = RoutePlanRequest(
         base_location_id="spot_nasu_yumoto_onsen",
-        target_spot_ids=[{"spot_id": "spot_nasu_ropeway"}],
+        target_spot_ids=[
+            {"spot_id": "spot_nasu_ropeway"},
+            {"spot_id": "spot_nasu_yumoto_onsen"},
+        ],
         departure_time="10:00",
         departure_date="2026-08-17",
     )
@@ -84,6 +88,27 @@ async def test_build_route_plan_success(engine: GTFSEngine, spots: SpotRepositor
     assert (stay_step.from_lat, stay_step.from_lng) == pytest.approx((37.1240, 139.9850))
     assert (stay_step.to_lat, stay_step.to_lng) == pytest.approx((37.1240, 139.9850))
     assert plan.steps[-1].step_order == len(plan.steps)
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_one_way_ends_at_last_target(
+    engine: GTFSEngine, spots: SpotRepository
+) -> None:
+    # No return leg, and no stay step at the final (only) target since the
+    # trip ends there.
+    request = RoutePlanRequest(
+        base_location_id="spot_nasu_yumoto_onsen",
+        target_spot_ids=[{"spot_id": "spot_nasu_ropeway"}],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success"
+    modes = [step.mode for step in response.plans[0].steps]
+    assert modes == ["walking", "wait", "bus", "walking"]
+    assert "stay" not in modes
 
 
 @pytest.mark.anyio
@@ -145,9 +170,14 @@ async def test_build_route_plan_returns_error_status_when_ors_fails(
 async def test_build_route_plan_uses_custom_dwell_minutes(
     engine: GTFSEngine, spots: SpotRepository
 ) -> None:
+    # Round trip so spot_nasu_ropeway isn't the final target (the final
+    # target gets no stay step, since the trip ends there).
     request = RoutePlanRequest(
         base_location_id="spot_nasu_yumoto_onsen",
-        target_spot_ids=[{"spot_id": "spot_nasu_ropeway", "dwell_minutes": 90}],
+        target_spot_ids=[
+            {"spot_id": "spot_nasu_ropeway", "dwell_minutes": 90},
+            {"spot_id": "spot_nasu_yumoto_onsen"},
+        ],
         departure_time="10:00",
         departure_date="2026-08-17",
     )
@@ -167,7 +197,10 @@ async def test_build_route_plan_defaults_dwell_minutes_when_omitted(
 ) -> None:
     request = RoutePlanRequest(
         base_location_id="spot_nasu_yumoto_onsen",
-        target_spot_ids=[{"spot_id": "spot_nasu_ropeway"}],
+        target_spot_ids=[
+            {"spot_id": "spot_nasu_ropeway"},
+            {"spot_id": "spot_nasu_yumoto_onsen"},
+        ],
         departure_time="10:00",
         departure_date="2026-08-17",
     )
@@ -185,7 +218,10 @@ async def test_build_route_plan_inserts_wait_step_when_early_for_reservation(
     # Computed arrival at spot_nasu_ropeway is 10:40; require 10:50.
     request = RoutePlanRequest(
         base_location_id="spot_nasu_yumoto_onsen",
-        target_spot_ids=[{"spot_id": "spot_nasu_ropeway", "required_arrival_time": "10:50"}],
+        target_spot_ids=[
+            {"spot_id": "spot_nasu_ropeway", "required_arrival_time": "10:50"},
+            {"spot_id": "spot_nasu_yumoto_onsen"},
+        ],
         departure_time="10:00",
         departure_date="2026-08-17",
     )
@@ -228,6 +264,58 @@ async def test_build_route_plan_returns_error_when_reservation_cannot_be_met(
 
 
 @pytest.mark.anyio
+async def test_build_route_plan_honors_required_arrival_time_on_round_trip_return(
+    engine: GTFSEngine, spots: SpotRepository
+) -> None:
+    # A round trip (base listed again as the final target) can still carry
+    # its own required_arrival_time, e.g. "must be back by 12:35" — this is
+    # honored even though it's the last leg, unlike dwell_minutes (which is
+    # ignored on the final target since the trip ends there).
+    request = RoutePlanRequest(
+        base_location_id="spot_nasu_yumoto_onsen",
+        target_spot_ids=[
+            {"spot_id": "spot_nasu_ropeway"},
+            {"spot_id": "spot_nasu_yumoto_onsen", "required_arrival_time": "12:35"},
+        ],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success", response.ai_hint
+    steps = response.plans[0].steps
+    assert steps[-1].mode == "wait"
+    assert "集合時刻" in steps[-1].details
+    assert steps[-1].end_time == "12:35"
+    # spot_nasu_ropeway (not the final target) still gets its stay step;
+    # only the final target (the return to base) has none.
+    assert [step.mode for step in steps].count("stay") == 1
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_errors_when_round_trip_return_deadline_missed(
+    engine: GTFSEngine, spots: SpotRepository
+) -> None:
+    # Computed return to base is 12:25; requiring 12:15 is too early to meet.
+    request = RoutePlanRequest(
+        base_location_id="spot_nasu_yumoto_onsen",
+        target_spot_ids=[
+            {"spot_id": "spot_nasu_ropeway"},
+            {"spot_id": "spot_nasu_yumoto_onsen", "required_arrival_time": "12:15"},
+        ],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "error"
+    assert response.plans == []
+    assert "集合時刻" in response.ai_hint
+
+
+@pytest.mark.anyio
 async def test_build_route_plan_walks_when_no_nearby_stop_and_distance_is_short(
     tmp_path: Path, engine: GTFSEngine
 ) -> None:
@@ -242,7 +330,7 @@ async def test_build_route_plan_walks_when_no_nearby_stop_and_distance_is_short(
     )
     request = RoutePlanRequest(
         base_location_id="far_base",
-        target_spot_ids=[{"spot_id": "far_near_target"}],
+        target_spot_ids=[{"spot_id": "far_near_target"}, {"spot_id": "far_base"}],
         departure_time="10:00",
         departure_date="2026-08-17",
     )
@@ -269,7 +357,7 @@ async def test_build_route_plan_uses_taxi_when_no_nearby_stop_and_distance_is_lo
     )
     request = RoutePlanRequest(
         base_location_id="far_base",
-        target_spot_ids=[{"spot_id": "far_target"}],
+        target_spot_ids=[{"spot_id": "far_target"}, {"spot_id": "far_base"}],
         departure_time="10:00",
         departure_date="2026-08-17",
     )

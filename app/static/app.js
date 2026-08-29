@@ -195,18 +195,27 @@ let routeSelection = [];
 const routeModeToggle = document.getElementById("route-mode-toggle");
 const routeSelectionListEl = document.getElementById("route-selection-list");
 const routeSearchButton = document.getElementById("route-search-submit");
+const routeRoundTripCheckbox = document.getElementById("route-round-trip");
 
 function renderRouteSelection() {
   routeSelectionListEl.innerHTML = "";
   routeSelection.forEach((spot, index) => {
     const isBase = index === 0;
+    const isLastTarget = !isBase && index === routeSelection.length - 1;
 
     const item = document.createElement("div");
     item.className = "route-selection-item";
 
     const label = document.createElement("span");
     label.className = "label";
-    const badge = isBase ? "起点" : `${index}`;
+    let badge;
+    if (isBase) {
+      badge = "起点";
+    } else if (isLastTarget && !routeRoundTripCheckbox.checked) {
+      badge = "終点";
+    } else {
+      badge = `${index}`;
+    }
     label.innerHTML = `<span class="badge">${badge}</span>${escapeHtml(spot.name)}`;
 
     const buttons = document.createElement("span");
@@ -285,6 +294,10 @@ function buildSpotSettingsForm(spot) {
   return form;
 }
 
+routeRoundTripCheckbox.addEventListener("change", () => {
+  renderRouteSelection();
+});
+
 routeModeToggle.addEventListener("click", () => {
   routeMode = !routeMode;
   routeModeToggle.textContent = `ルート作成モード: ${routeMode ? "ON" : "OFF"}`;
@@ -306,6 +319,18 @@ routeSearchButton.addEventListener("click", async () => {
 
   const transferBufferMinutes = parseInt(document.getElementById("transfer-buffer").value, 10) || 0;
 
+  const targetSpotIds = targets.map((spot) => ({
+    spot_id: spot.spot_id,
+    dwell_minutes: spot.dwellMinutes || undefined,
+    required_arrival_time: spot.requiredArrivalTime || undefined,
+    required: spot.required,
+  }));
+  if (routeRoundTripCheckbox.checked) {
+    // The trip ends at the last target by default; listing base_location_id
+    // again as the final target is how a round trip is expressed.
+    targetSpotIds.push({ spot_id: base.spot_id });
+  }
+
   setStatus("ルートを検索中...");
   try {
     const response = await fetch("/plan/route-plan", {
@@ -313,12 +338,7 @@ routeSearchButton.addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         base_location_id: base.spot_id,
-        target_spot_ids: targets.map((spot) => ({
-          spot_id: spot.spot_id,
-          dwell_minutes: spot.dwellMinutes || undefined,
-          required_arrival_time: spot.requiredArrivalTime || undefined,
-          required: spot.required,
-        })),
+        target_spot_ids: targetSpotIds,
         departure_time: departureTime,
         departure_date: departureDate,
         transfer_buffer_minutes: transferBufferMinutes,

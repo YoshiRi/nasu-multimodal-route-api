@@ -43,17 +43,22 @@ class TargetSpot(BaseModel):
 
 class RoutePlanRequest(BaseModel):
     base_location_id: str = Field(
-        description="Spot ID of the starting and ending point.",
+        description="Spot ID of the starting point.",
         examples=["station_nasushiobara"],
     )
     target_spot_ids: list[TargetSpot] = Field(
         min_length=1,
         max_length=10,
         description=(
-            "Spots to visit, each with an optional dwell_minutes. The "
-            "current version visits them in the given array order — no "
-            "route optimization yet, so list them in the order they "
-            "should be visited."
+            "Spots to visit, each with an optional dwell_minutes. Visited "
+            "in the given array order — no route optimization yet, so "
+            "list them in the order they should be visited. The trip ends "
+            "at the LAST entry; there is no automatic return to "
+            "base_location_id. For a round trip, list base_location_id "
+            "again as the final entry (dwell_minutes on it is ignored — "
+            "no stay step is generated for the last target — but "
+            "required_arrival_time still applies, e.g. 'must be back by "
+            "20:00')."
         ),
         examples=[
             [

@@ -1,6 +1,6 @@
 # 実装計画書
 
-更新日: 2026-08-29
+更新日: 2026-08-30
 
 ## 方針
 
@@ -547,4 +547,30 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 
 検証: 実GTFS・実ORSで上記の往復5スポットルートが成立することを確認（那須塩原駅08:35発→...→ホテルエピナール那須15:00-16:00滞在→...→那須塩原駅17:26着、全26ステップ）。ブラウザUIでの動作確認（`claude-in-chrome`）は未実施。
 
-残作業: ブラウザUI経由での同ルートの動作確認（使用感の検証）、`route-plan`の片道（非対称start/end）対応の要否検討、`MAX_STOP_CANDIDATES`増加に伴うORS呼び出し増の恒久対策（重複停留所名の除去、バス接続確認とORS呼び出しの分離）。
+残作業: `MAX_STOP_CANDIDATES`増加に伴うORS呼び出し増の恒久対策（重複停留所名の除去、バス接続確認とORS呼び出しの分離）。
+
+検証（追記）: `claude-in-chrome`で実際のUIを操作し（ルート作成モードON→マーカーをJS経由でクリック→日付時刻設定→検索）、上記5スポット往復ルートが結果ページ（地図＋時系列タイムライン、クリックでのズーム連動）に正しく表示されることを確認した。ブラウザUI経由での検証も完了。
+
+## route-planの片道対応（2026-08-30）
+
+前セクションで「駅からエピナールをゴールに」という依頼が片道（非対称start/end）を示唆していたが現状は往復専用、という残課題を報告したところ、ユーザーから設計案の提案があった: 「目的地を重複設定できるようにすればワンウェイかどうかを指定できるのでは？出発とゴールを強い制約にするとか」。
+
+採用した設計（新規フィールド追加なし）:
+
+- `_compute_plan()`の`waypoints`を`[base, *targets, base]`（常に往復）から`[base, *targets]`（`target_spot_ids`の最後の要素で行程が終わる）に変更。
+- 往復にしたい場合は、呼び出し側が`target_spot_ids`の最後にもう一度`base_location_id`と同じspot_idを指定する。
+- 確認事項として、「最後の訪問地＝実際の目的地になりうる」ため、`required_arrival_time`（例: ホテルのチェックイン期限）を最後の訪問地でも有効にすべきか質問したところ、「最後の地点でも有効にする」の回答を得た。一方、滞在（stay）ステップは最後の訪問地では引き続き省略する（行程がそこで終わるため、次に移動するまでの滞在時間という概念自体が発生しない）。
+- タイトル末尾の文言を「周遊プラン」（往復を含意）から「行程プラン」（中立的）に変更。
+
+バックエンド (`app/services/route_planner.py`, `app/models/route_plan.py`):
+- `_compute_plan()`: `waypoints`から末尾の自動`base`追加を削除。`required_arrival_time`のチェックを「最終レグ以外のみ」から「毎レグ（最終レグ含む）」に変更。滞在ステップの生成は引き続き最終レグのみスキップ。
+- `RoutePlanRequest.base_location_id`/`target_spot_ids`のフィールド説明を新しい意味論（片道がデフォルト、往復は`base_location_id`の重複指定）に合わせて更新。
+
+フロントエンド (`app/static/index.html`/`app.js`/`style.css`):
+- ルート作成パネルに「往復にする（起点に戻る）」チェックボックスを追加（デフォルトOFF＝片道）。
+- 選択リストの最後の訪問地は、チェックボックスOFF時は「終点」バッジ、ON時は通常の番号バッジを表示（チェック状態の変更で再描画）。
+- 検索実行時、チェックボックスONなら送信直前に`target_spot_ids`の末尾へ`{spot_id: base_location_id}`を追加する（`routeSelection`自体は変更しない＝マーカーの重複クリックガードには触れていない）。
+
+テスト: 往復を前提にしていた既存テスト（`test_build_route_plan_success`ほか）は、`target_spot_ids`の末尾に明示的に`base_location_id`を重複指定する形に更新（アサーション自体は変更不要だった＝往復の挙動は完全互換）。新規に片道の基本ケース（`test_build_route_plan_one_way_ends_at_last_target`/API版）と、往復の最終レグで`required_arrival_time`が効くこと・効かせて不成立にできることを検証する2テスト（`test_build_route_plan_honors_required_arrival_time_on_round_trip_return`/`..._errors_when_round_trip_return_deadline_missed`）を追加。`python -m pytest`で104 tests passed。
+
+検証: 実データ・実UIで「那須塩原駅→那須湯本温泉→ホテルエピナール那須」を片道（チェックボックスOFF）で検索し、往路のみで終了（復路なし、最終地点にstayステップなし）することを確認。同じ選択でチェックボックスをONにすると選択リストの表示が「終点」から番号バッジに切り替わることを確認。往復（チェックボックスON）でのリクエスト送信自体も確認できたが、この session で実ORS APIを繰り返し叩いたためレート制限（`ORS_MAX_REQUESTS_PER_MINUTE`ローカル制限とは別に、ORS側実クォータと思われる）により最終確認は`徒歩・タクシー区間の経路計算に失敗`で不成立となった。ロジック自体はpytestの往復系テストで検証済みのため問題はないと判断。

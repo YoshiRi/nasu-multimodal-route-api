@@ -118,7 +118,11 @@ async def _compute_plan(
     request: RoutePlanRequest,
     engine: GTFSEngine,
 ) -> RoutePlanResponse:
-    waypoints = [base, *targets, base]
+    # The trip ends at the last entry in `targets` — there is no automatic
+    # return to `base`. A round trip is expressed by the caller listing
+    # base_location_id again as the final target (see build_route_plan's
+    # docstring-equivalent in the API docs).
+    waypoints = [base, *targets]
     cursor = _Cursor(minutes=parse_gtfs_time_to_minutes(request.departure_time))
     steps: list[ItineraryStep] = []
     step_order = 1
@@ -140,25 +144,30 @@ async def _compute_plan(
         steps.extend(leg_steps)
         step_order += len(leg_steps)
 
+        # index-th leg arrives at targets[index] (waypoints[index + 1]).
+        # required_arrival_time is honored even on the final target, since
+        # it may be the trip's real destination (e.g. a hotel check-in
+        # deadline) rather than just "back at base".
+        required = required_arrival_minutes[index]
+        if required is not None:
+            if cursor.minutes > required:
+                return _missed_reservation_response(destination.name, required)
+            if cursor.minutes < required:
+                wait_step, cursor.minutes = _wait_step(destination, required, cursor.minutes, step_order)
+                steps.append(wait_step)
+                step_order += 1
+
+        # No stay step after the final target — the trip ends there, so
+        # there's nothing to wait out before moving on.
         is_last_leg = index == len(waypoints) - 2
         if not is_last_leg:
-            # index-th leg arrives at targets[index] (waypoints[index + 1]).
-            required = required_arrival_minutes[index]
-            if required is not None:
-                if cursor.minutes > required:
-                    return _missed_reservation_response(destination.name, required)
-                if cursor.minutes < required:
-                    wait_step, cursor.minutes = _wait_step(destination, required, cursor.minutes, step_order)
-                    steps.append(wait_step)
-                    step_order += 1
-
             stay_step, cursor.minutes = _stay_step(
                 destination, dwell_minutes[index], cursor.minutes, step_order
             )
             steps.append(stay_step)
             step_order += 1
 
-    title = f"{base.name}発 {' → '.join(target.name for target in targets)} 周遊プラン"
+    title = f"{base.name}発 {' → '.join(target.name for target in targets)} 行程プラン"
     return RoutePlanResponse(
         status="success",
         ai_hint=f"「{title}」が成立しました。内容をユーザーに分かりやすく説明してください。",

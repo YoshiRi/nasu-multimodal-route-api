@@ -28,6 +28,30 @@ def fake_walking_route(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_route_plan_success() -> None:
+    # Round trip: base_location_id listed again as the final target.
+    response = client.post(
+        "/plan/route-plan",
+        json={
+            "base_location_id": "spot_nasu_yumoto_onsen",
+            "target_spot_ids": [
+                {"spot_id": "spot_nasu_ropeway"},
+                {"spot_id": "spot_nasu_yumoto_onsen"},
+            ],
+            "departure_time": "10:00",
+            "departure_date": "2026-08-17",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "success"
+    assert len(body["plans"]) == 1
+    assert [step["mode"] for step in body["plans"][0]["steps"]] == [
+        "walking", "wait", "bus", "walking", "stay", "walking", "wait", "bus", "walking",
+    ]
+
+
+def test_route_plan_one_way_ends_at_last_target() -> None:
     response = client.post(
         "/plan/route-plan",
         json={
@@ -41,10 +65,9 @@ def test_route_plan_success() -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "success"
-    assert len(body["plans"]) == 1
-    assert [step["mode"] for step in body["plans"][0]["steps"]] == [
-        "walking", "wait", "bus", "walking", "stay", "walking", "wait", "bus", "walking",
-    ]
+    modes = [step["mode"] for step in body["plans"][0]["steps"]]
+    assert modes == ["walking", "wait", "bus", "walking"]
+    assert "stay" not in modes
 
 
 def test_route_plan_returns_200_with_error_status_when_infeasible() -> None:
@@ -80,11 +103,15 @@ def test_route_plan_returns_400_for_unknown_spot() -> None:
 
 
 def test_route_plan_honors_custom_dwell_minutes() -> None:
+    # Round trip so spot_nasu_ropeway isn't the final target.
     response = client.post(
         "/plan/route-plan",
         json={
             "base_location_id": "spot_nasu_yumoto_onsen",
-            "target_spot_ids": [{"spot_id": "spot_nasu_ropeway", "dwell_minutes": 90}],
+            "target_spot_ids": [
+                {"spot_id": "spot_nasu_ropeway", "dwell_minutes": 90},
+                {"spot_id": "spot_nasu_yumoto_onsen"},
+            ],
             "departure_time": "10:00",
             "departure_date": "2026-08-17",
         },
@@ -116,7 +143,8 @@ def test_route_plan_inserts_wait_step_for_reservation() -> None:
         json={
             "base_location_id": "spot_nasu_yumoto_onsen",
             "target_spot_ids": [
-                {"spot_id": "spot_nasu_ropeway", "required_arrival_time": "10:50"}
+                {"spot_id": "spot_nasu_ropeway", "required_arrival_time": "10:50"},
+                {"spot_id": "spot_nasu_yumoto_onsen"},
             ],
             "departure_time": "10:00",
             "departure_date": "2026-08-17",
