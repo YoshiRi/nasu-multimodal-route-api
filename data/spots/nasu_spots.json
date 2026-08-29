@@ -16,5 +16,161 @@
     "name": "那須ロープウェイ",
     "lat": 37.1240,
     "lng": 139.9850
+  },
+  {
+    "spot_id": "spot_minamigaoka",
+    "name": "南ヶ丘牧場",
+    "lat": 37.0508,
+    "lng": 140.0125
+  },
+  {
+    "spot_id": "spot_safari",
+    "name": "那須サファリパーク",
+    "lat": 37.0435,
+    "lng": 140.0157
+  },
+  {
+    "spot_id": "spot_yuainomori",
+    "name": "道の駅 那須高原友愛の森",
+    "lat": 37.0261,
+    "lng": 140.0232
+  },
+  {
+    "spot_id": "spot_animal_kingdom",
+    "name": "那須どうぶつ王国",
+    "lat": 37.1147,
+    "lng": 140.0611
+  },
+  {
+    "spot_id": "spot_rindoko",
+    "name": "那須りんどう湖ファミリー牧場",
+    "lat": 37.0375,
+    "lng": 140.0522
+  },
+  {
+    "spot_id": "spot_highland_park",
+    "name": "那須ハイランドパーク",
+    "lat": 37.0592,
+    "lng": 139.9675
+  },
+  {
+    "spot_id": "spot_stained_glass",
+    "name": "那須ステンドグラス美術館",
+    "lat": 37.0518,
+    "lng": 140.0211
+  },
+  {
+    "spot_id": "spot_teddy_bear",
+    "name": "那須テディベア・ミュージアム",
+    "lat": 37.0361,
+    "lng": 140.0381
+  },
+  {
+    "spot_id": "spot_asian_bazaar",
+    "name": "アジアンオールドバザール",
+    "lat": 37.0583,
+    "lng": 140.0102
+  },
+  {
+    "spot_id": "spot_cheese_garden",
+    "name": "チーズガーデン 那須本店",
+    "lat": 37.0183,
+    "lng": 140.0275
+  },
+  {
+    "spot_id": "spot_shozo_cafe",
+    "name": "NASU SHOZO CAFE",
+    "lat": 37.0425,
+    "lng": 140.0195
+  },
+  {
+    "spot_id": "spot_sesshoseki",
+    "name": "殺生石",
+    "lat": 37.1008,
+    "lng": 140.0003
+  },
+  {
+    "spot_id": "spot_heiseinomori",
+    "name": "那須平成の森",
+    "lat": 37.1060,
+    "lng": 139.9830
+  },
+  {
+    "spot_id": "spot_itamuro_nature_center",
+    "name": "板室自然遊学センター",
+    "lat": 37.06402838253101,
+    "lng": 139.92301417823316
+  },
+  {
+    "spot_id": "spot_itamuro_kenkounoyu",
+    "name": "板室健康のゆグリーングリーン",
+    "lat": 37.06452433723579,
+    "lng": 139.92342792110807
+  },
+  {
+    "spot_id": "spot_numappara_wetland",
+    "name": "沼ッ原湿原",
+    "lat": 37.106895,
+    "lng": 139.93141
+  },
+  {
+    "spot_id": "spot_otome_falls",
+    "name": "乙女の滝",
+    "lat": 37.06715703132396,
+    "lng": 139.93767767786753
+  },
+  {
+    "spot_id": "spot_kinomata_valley",
+    "name": "木の俣渓谷と木の俣園地",
+    "lat": 37.049900797291244,
+    "lng": 139.93013907366444
+  },
+  {
+    "spot_id": "spot_miyama_lake",
+    "name": "深山湖（ダム）",
+    "lat": 37.085013,
+    "lng": 139.90532
+  },
+  {
+    "spot_id": "spot_miyama_park",
+    "name": "深山園地",
+    "lat": 37.071899785182296,
+    "lng": 139.89431131546888
+  },
+  {
+    "spot_id": "spot_nasuno_zero_point",
+    "name": "那須野ゼロポイント",
+    "lat": 37.003093999091185,
+    "lng": 139.9967053557813
+  },
+  {
+    "spot_id": "spot_kagoiwa_shrine",
+    "name": "篭岩神社（篭岩地蔵）",
+    "lat": 37.062469013009526,
+    "lng": 139.928491273019
+  },
+  {
+    "spot_id": "spot_bansui_bridge",
+    "name": "晩翠橋",
+    "lat": 36.978461513903476,
+    "lng": 140.0614825418265
+  },
+  {
+    "spot_id": "spot_rindou_bridge",
+    "name": "りんどう大橋",
+    "lat": 37.021147912883066,
+    "lng": 140.01392529279767
+  },
+  {
+    "spot_id": "spot_nasu_kogen_bridge",
+    "name": "那須高原大橋",
+    "lat": 37.03939346948347,
+    "lng": 139.99389313038145
+  },
+  {
+    "spot_id": "spot_namikiri_fudoson",
+    "name": "波切不動尊",
+    "lat": 36.9190247,
+    "lng": 140.0216583
   }
 ]
