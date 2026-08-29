@@ -19,9 +19,18 @@ NEAREST_STOP_RADIUS_M = 1500
 # When a spot has more than one GTFS stop nearby, the single closest one
 # is not always usable (e.g. two operators serve the same area, and only
 # one of them actually runs a trip to the other endpoint — see
-# test_build_route_plan_finds_bus_via_a_farther_but_connected_stop). Try
-# up to this many nearest candidates per endpoint before giving up.
-MAX_STOP_CANDIDATES = 3
+# test_build_route_plan_finds_bus_via_a_farther_but_connected_stop). Real
+# Nasu-area GTFS data also has the same physical stop registered multiple
+# times (e.g. separate inbound/outbound entries a few meters apart), which
+# eats candidate slots without adding real options — see
+# test_build_route_plan_finds_bus_via_stop_ranked_beyond_top_three, found
+# while dogfooding a real round-trip route where the connecting stop
+# ("新屋") ranked 6th-7th by distance. Try up to this many nearest
+# candidates per endpoint before giving up. Each untried candidate costs
+# at most one extra ORS walking-route call (see _build_leg), so this is a
+# deliberate trade-off against the shared ORS rate limit
+# (ORS_MAX_REQUESTS_PER_MINUTE in ors_client.py).
+MAX_STOP_CANDIDATES = 8
 
 # Above this straight-line distance, a spot-to-spot "walking" leg (used
 # when a spot has no GTFS stop within NEAREST_STOP_RADIUS_M) switches to

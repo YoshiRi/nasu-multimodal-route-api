@@ -323,6 +323,42 @@ async def test_build_route_plan_finds_bus_via_a_farther_but_connected_stop(tmp_p
     assert bus_steps[0].details.startswith("Origin Stop")
 
 
+MANY_DECOYS_NEAR_DIR = Path(__file__).parent / "fixtures" / "many_decoys_near"
+MANY_DECOYS_REAL_DIR = Path(__file__).parent / "fixtures" / "many_decoys_real"
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_finds_bus_via_stop_ranked_beyond_top_three(tmp_path: Path) -> None:
+    # Real-world shape of a bug found while dogfooding real Nasu-area GTFS
+    # data: the destination has 4 unconnected stops slightly closer than
+    # the one actually served by a trip from the origin, so the connected
+    # stop ranks 5th by distance. MAX_STOP_CANDIDATES must reach far enough
+    # to still find it, not just tries a couple of near-tied nearest stops.
+    engine = GTFSEngine.from_feeds(
+        {"near": MANY_DECOYS_NEAR_DIR, "real": MANY_DECOYS_REAL_DIR}
+    )
+    spots = _spot_repository_at(
+        tmp_path,
+        [
+            {"spot_id": "origin", "name": "Origin", "lat": 0.0, "lng": 0.0},
+            {"spot_id": "destination", "name": "Destination", "lat": 0.01, "lng": 0.0},
+        ],
+    )
+    request = RoutePlanRequest(
+        base_location_id="origin",
+        target_spot_ids=[{"spot_id": "destination"}],
+        departure_time="08:00",
+        departure_date="2026-03-02",  # a Monday within both fixtures' calendars
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success", response.ai_hint
+    bus_steps = [step for step in response.plans[0].steps if step.mode == "bus"]
+    assert bus_steps
+    assert bus_steps[0].details.startswith("Origin Stop")
+
+
 @pytest.mark.anyio
 async def test_build_route_plan_drops_optional_spot_that_does_not_fit(
     engine: GTFSEngine, spots: SpotRepository

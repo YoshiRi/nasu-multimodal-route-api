@@ -1,0 +1,5 @@
+trip_id,arrival_time,departure_time,stop_id,stop_sequence
+trip_real_connected,08:10:00,08:10:00,stop_origin_connected,1
+trip_real_connected,08:30:00,08:30:00,stop_real_connected,2
+trip_real_connected_return,10:00:00,10:00:00,stop_real_connected,1
+trip_real_connected_return,10:20:00,10:20:00,stop_origin_connected,2

@@ -1,0 +1,3 @@
+stop_id,stop_name,stop_lat,stop_lon
+stop_origin_connected,Origin Stop,0.0,0.0
+stop_real_connected,Real Connected Stop,0.01005,0.0

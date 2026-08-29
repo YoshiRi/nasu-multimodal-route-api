@@ -1,0 +1,6 @@
+trip_id,arrival_time,departure_time,stop_id,stop_sequence
+trip_decoy,08:00:00,08:00:00,stop_decoy1,1
+trip_decoy,08:05:00,08:05:00,stop_decoy2,2
+trip_decoy,08:10:00,08:10:00,stop_decoy3,3
+trip_decoy,08:15:00,08:15:00,stop_decoy4,4
+trip_decoy,08:30:00,08:30:00,stop_decoy_other,5

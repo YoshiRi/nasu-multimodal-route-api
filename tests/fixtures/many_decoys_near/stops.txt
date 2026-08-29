@@ -1,0 +1,6 @@
+stop_id,stop_name,stop_lat,stop_lon
+stop_decoy1,Decoy Stop 1,0.01001,0.0
+stop_decoy2,Decoy Stop 2,0.01002,0.0
+stop_decoy3,Decoy Stop 3,0.01003,0.0
+stop_decoy4,Decoy Stop 4,0.01004,0.0
+stop_decoy_other,Decoy Other,5.0,5.0
