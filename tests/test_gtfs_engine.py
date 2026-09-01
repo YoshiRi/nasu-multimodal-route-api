@@ -32,6 +32,7 @@ def test_search_next_bus_returns_up_to_three_direct_trips() -> None:
         "departure_time": "10:15:00",
         "arrival_time": "10:35:00",
         "duration_min": 20,
+        "shape_id": "shape_nasu_line",
     }
 
 
@@ -166,6 +167,28 @@ def test_route_shapes_returns_points_in_sequence_order_with_line_name() -> None:
             "points": [[37.0950, 140.0010], [37.1100, 139.9900], [37.1240, 139.9850]],
         }
     ]
+
+
+def test_bus_leg_path_returns_shape_slice_between_stops() -> None:
+    engine = GTFSEngine(FIXTURE_DIR)
+
+    # trip_1's shape starts exactly at stop_yumoto and ends exactly at
+    # stop_ropeway, so the whole shape is the ridden segment.
+    path = engine.bus_leg_path("trip_1", "stop_yumoto", "stop_ropeway")
+
+    assert path == [[37.0950, 140.0010], [37.1100, 139.9900], [37.1240, 139.9850]]
+
+
+def test_bus_leg_path_returns_none_for_trip_without_shape() -> None:
+    engine = GTFSEngine(FIXTURE_DIR)
+
+    assert engine.bus_leg_path("trip_reverse", "stop_ropeway", "stop_yumoto") is None
+
+
+def test_bus_leg_path_returns_none_when_no_shapes_file() -> None:
+    engine = GTFSEngine(OTHER_FIXTURE_DIR)
+
+    assert engine.bus_leg_path("trip_1", "stop_yumoto", "stop_ropeway") is None
 
 
 def test_route_shapes_returns_empty_list_when_no_shapes_file() -> None:

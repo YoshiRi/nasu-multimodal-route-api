@@ -62,6 +62,7 @@ class DirectBusOption:
     departure_time: str
     arrival_time: str
     duration_min: int
+    shape_id: str | None
 
     def to_dict(self) -> dict[str, str | int | None]:
         return {
@@ -76,6 +77,7 @@ class DirectBusOption:
             "departure_time": self.departure_time,
             "arrival_time": self.arrival_time,
             "duration_min": self.duration_min,
+            "shape_id": self.shape_id,
         }
 
 
@@ -182,6 +184,7 @@ class GTFSEngine:
                 departure_time=str(row.departure_time_origin),
                 arrival_time=str(row.arrival_time_dest),
                 duration_min=int(row.arrival_minutes_dest - row.departure_minutes_origin),
+                shape_id=_nullable_str(row.shape_id),
             )
             results.append(option.to_dict())
 
@@ -231,10 +234,7 @@ class GTFSEngine:
         results: list[dict[str, str | list[list[float]] | None]] = []
         shapes = self.shapes.sort_values(["shape_id", "shape_pt_sequence"])
         for shape_id, group in shapes.groupby("shape_id", sort=False):
-            points = [
-                [float(row.shape_pt_lat), float(row.shape_pt_lon)]
-                for row in group.itertuples(index=False)
-            ]
+            points = self._shape_points(group)
             route_id: str | None = None
             line_name: str | None = None
             if shape_id in shape_route.index:
@@ -255,6 +255,60 @@ class GTFSEngine:
             )
 
         return results
+
+    def bus_leg_path(
+        self, trip_id: str, origin_stop_id: str, dest_stop_id: str
+    ) -> list[list[float]] | None:
+        """Return the shape polyline for one bus leg, sliced to the ridden
+        segment (origin stop to destination stop), or None if the trip has
+        no shape or the stops can't be matched onto it."""
+
+        if self.shapes.empty:
+            return None
+
+        trip_rows = self.trips[self.trips["trip_id"] == trip_id]
+        if trip_rows.empty:
+            return None
+        shape_id = trip_rows.iloc[0]["shape_id"]
+        if not shape_id:
+            return None
+
+        shape_group = self.shapes[self.shapes["shape_id"] == shape_id]
+        if shape_group.empty:
+            return None
+        points = self._shape_points(shape_group.sort_values("shape_pt_sequence"))
+        if len(points) < 2:
+            return None
+
+        origin_stop = self.stops[self.stops["stop_id"] == origin_stop_id]
+        dest_stop = self.stops[self.stops["stop_id"] == dest_stop_id]
+        if origin_stop.empty or dest_stop.empty:
+            return None
+
+        origin_idx = self._nearest_point_index(
+            points, float(origin_stop.iloc[0]["stop_lat"]), float(origin_stop.iloc[0]["stop_lon"])
+        )
+        dest_idx = self._nearest_point_index(
+            points, float(dest_stop.iloc[0]["stop_lat"]), float(dest_stop.iloc[0]["stop_lon"])
+        )
+        if origin_idx >= dest_idx:
+            return None
+
+        return points[origin_idx : dest_idx + 1]
+
+    @staticmethod
+    def _shape_points(shape_group: pd.DataFrame) -> list[list[float]]:
+        return [
+            [float(row.shape_pt_lat), float(row.shape_pt_lon)]
+            for row in shape_group.itertuples(index=False)
+        ]
+
+    @staticmethod
+    def _nearest_point_index(points: list[list[float]], lat: float, lng: float) -> int:
+        return min(
+            range(len(points)),
+            key=lambda i: haversine_distance_m(lat, lng, points[i][0], points[i][1]),
+        )
 
     def active_service_ids(self, service_date: str | date) -> set[str]:
         """Return GTFS service_ids active on service_date."""

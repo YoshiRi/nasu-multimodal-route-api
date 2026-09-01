@@ -10,6 +10,7 @@ function setStatus(message) {
 }
 
 let stops = [];
+let spots = [];
 const stopMarkers = new Map();
 const spotMarkers = new Map();
 
@@ -77,26 +78,32 @@ function addSpotMarker(spot) {
     .addTo(map);
   marker.on("click", () => {
     if (!routeMode) return;
-    if (routeSelection.some((s) => s.spot_id === spot.spot_id)) return;
-    routeSelection.push({
-      spot_id: spot.spot_id,
-      name: spot.name,
-      lat: spot.lat,
-      lng: spot.lng,
-      dwellMinutes: null,
-      requiredArrivalTime: "",
-      required: true,
-      settingsOpen: false,
-    });
-    renderRouteSelection();
+    addSpotToRoute(spot);
   });
   spotMarkers.set(spot.spot_id, marker);
+}
+
+// Shared by marker clicks and the name-search "add" UI. Silently ignores a
+// spot already in the route (matches the marker-click dedup behavior).
+function addSpotToRoute(spot) {
+  if (routeSelection.some((s) => s.spot_id === spot.spot_id)) return;
+  routeSelection.push({
+    spot_id: spot.spot_id,
+    name: spot.name,
+    lat: spot.lat,
+    lng: spot.lng,
+    dwellMinutes: null,
+    requiredArrivalTime: "",
+    required: true,
+    settingsOpen: false,
+  });
+  renderRouteSelection();
 }
 
 async function loadSpots() {
   const response = await fetch("/spots");
   if (!response.ok) return;
-  const spots = await response.json();
+  spots = await response.json();
   for (const spot of spots) {
     addSpotMarker(spot);
   }
@@ -196,6 +203,31 @@ const routeModeToggle = document.getElementById("route-mode-toggle");
 const routeSelectionListEl = document.getElementById("route-selection-list");
 const routeSearchButton = document.getElementById("route-search-submit");
 const routeRoundTripCheckbox = document.getElementById("route-round-trip");
+
+// Name-based add: the primary way to build a route — type a spot name,
+// click a match to append it (badges in the list below show its role).
+const routeSpotSearchInput = document.getElementById("route-spot-search");
+const routeSpotSearchResultsEl = document.getElementById("route-spot-search-results");
+
+routeSpotSearchInput.addEventListener("input", () => {
+  const query = routeSpotSearchInput.value.trim().toLowerCase();
+  routeSpotSearchResultsEl.innerHTML = "";
+  if (!query) return;
+
+  const matches = spots.filter((s) => s.name.toLowerCase().includes(query)).slice(0, 30);
+  for (const spot of matches) {
+    const item = document.createElement("div");
+    item.className = "search-result";
+    item.textContent = spot.name;
+    item.addEventListener("click", () => {
+      addSpotToRoute(spot);
+      routeSpotSearchInput.value = "";
+      routeSpotSearchResultsEl.innerHTML = "";
+      routeSpotSearchInput.focus();
+    });
+    routeSpotSearchResultsEl.appendChild(item);
+  }
+});
 
 function renderRouteSelection() {
   routeSelectionListEl.innerHTML = "";
@@ -300,7 +332,7 @@ routeRoundTripCheckbox.addEventListener("change", () => {
 
 routeModeToggle.addEventListener("click", () => {
   routeMode = !routeMode;
-  routeModeToggle.textContent = `ルート作成モード: ${routeMode ? "ON" : "OFF"}`;
+  routeModeToggle.textContent = `地図クリックで経由地を追加: ${routeMode ? "ON" : "OFF"}`;
   routeModeToggle.classList.toggle("active", routeMode);
   if (routeMode && addSpotMode) {
     addSpotToggle.click();

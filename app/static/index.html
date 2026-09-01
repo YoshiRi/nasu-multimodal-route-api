@@ -30,12 +30,14 @@
 
     <div class="panel-section">
       <strong>ルート作成</strong>
-      <button id="route-mode-toggle">ルート作成モード: OFF</button>
+      <input id="route-spot-search" type="text" placeholder="スポット名を入力して追加..." autocomplete="off" />
+      <div id="route-spot-search-results"></div>
       <div id="route-selection-list"></div>
       <label id="route-round-trip-label">
         <input id="route-round-trip" type="checkbox" />
         往復にする（起点に戻る）
       </label>
+      <button id="route-mode-toggle">地図クリックで経由地を追加: OFF</button>
     </div>
 
     <div class="panel-section">

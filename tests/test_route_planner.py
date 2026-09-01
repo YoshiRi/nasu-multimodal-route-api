@@ -28,7 +28,7 @@ def spots() -> SpotRepository:
 @pytest.fixture(autouse=True)
 def fake_walking_route(monkeypatch: pytest.MonkeyPatch):
     async def fake(lat1, lng1, lat2, lng2, *, client=None):
-        return RouteEstimate(duration_min=5, distance_m=400.0)
+        return RouteEstimate(duration_min=5, distance_m=400.0, path=[[lat1, lng1], [lat2, lng2]])
 
     monkeypatch.setattr(route_planner, "get_walking_route", fake)
     return fake
@@ -88,6 +88,13 @@ async def test_build_route_plan_success(engine: GTFSEngine, spots: SpotRepositor
     assert (stay_step.from_lat, stay_step.from_lng) == pytest.approx((37.1240, 139.9850))
     assert (stay_step.to_lat, stay_step.to_lng) == pytest.approx((37.1240, 139.9850))
     assert plan.steps[-1].step_order == len(plan.steps)
+
+    # The bus step's path is the actual GTFS shape, not a straight line.
+    assert bus_steps[0].path == [
+        [37.0950, 140.0010], [37.1100, 139.9900], [37.1240, 139.9850],
+    ]
+    # The walking step's path comes straight through from the ORS response.
+    assert first_walk.path == [[37.0950, 140.0010], [37.0950, 140.0010]]
 
 
 @pytest.mark.anyio

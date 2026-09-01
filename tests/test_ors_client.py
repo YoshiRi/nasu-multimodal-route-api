@@ -17,6 +17,18 @@ VALID_RESPONSE = {
     ]
 }
 
+VALID_RESPONSE_WITH_GEOMETRY = {
+    "features": [
+        {
+            "properties": {"summary": {"duration": 300.0, "distance": 400.0}},
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[140.0, 37.0], [140.05, 37.02], [140.1, 37.1]],
+            },
+        },
+    ]
+}
+
 
 @pytest.fixture
 def permissive_rate_limiter() -> SlidingWindowRateLimiter:
@@ -47,6 +59,30 @@ async def test_get_walking_route_parses_duration_and_distance(
 
     assert route.duration_min == 5
     assert route.distance_m == 400.0
+    # No geometry in the response: falls back to a straight line.
+    assert route.path == [[37.0, 140.0], [37.1, 140.1]]
+
+
+@pytest.mark.anyio
+async def test_get_walking_route_parses_geometry_path(
+    monkeypatch: pytest.MonkeyPatch, permissive_rate_limiter: SlidingWindowRateLimiter
+) -> None:
+    monkeypatch.setenv("ORS_API_KEY", "test-key")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=VALID_RESPONSE_WITH_GEOMETRY)
+
+    route = await get_walking_route(
+        37.0,
+        140.0,
+        37.1,
+        140.1,
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        rate_limiter=permissive_rate_limiter,
+    )
+
+    # geometry.coordinates is [lng, lat]; path is [lat, lng].
+    assert route.path == [[37.0, 140.0], [37.02, 140.05], [37.1, 140.1]]
 
 
 @pytest.mark.anyio

@@ -12,7 +12,7 @@ endpoint or internal caller triggers them — see app/services/rate_limiter.py.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -40,6 +40,9 @@ class OrsRateLimitError(OrsRequestError):
 class RouteEstimate:
     duration_min: int
     distance_m: float
+    # Ordered [lat, lng] points of the actual route geometry, for map
+    # display. Falls back to [[start], [end]] if ORS returned no geometry.
+    path: list[list[float]] = field(default_factory=list)
 
 
 async def get_walking_route(
@@ -112,10 +115,21 @@ async def _get_route(
             await http_client.aclose()
 
     try:
-        summary = data["features"][0]["properties"]["summary"]
+        feature = data["features"][0]
+        summary = feature["properties"]["summary"]
         duration_s = float(summary["duration"])
         distance_m = float(summary["distance"])
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise OrsRequestError(f"Unexpected ORS response shape: {data!r}") from exc
 
-    return RouteEstimate(duration_min=round(duration_s / 60), distance_m=round(distance_m, 1))
+    try:
+        coordinates = feature["geometry"]["coordinates"]
+        path = [[float(lat), float(lng)] for lng, lat in coordinates]
+        if len(path) < 2:
+            raise ValueError("geometry has fewer than 2 points")
+    except (KeyError, IndexError, TypeError, ValueError):
+        path = [[lat1, lng1], [lat2, lng2]]
+
+    return RouteEstimate(
+        duration_min=round(duration_s / 60), distance_m=round(distance_m, 1), path=path
+    )

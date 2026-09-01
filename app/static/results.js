@@ -71,7 +71,8 @@ function renderMap(steps) {
   steps.forEach((step) => {
     const from = [step.from_lat, step.from_lng];
     const to = [step.to_lat, step.to_lng];
-    allPoints.push(from, to);
+    const hasPath = step.path && step.path.length >= 2;
+    allPoints.push(...(hasPath ? step.path : [from, to]));
 
     let layer;
     if (step.from_lat === step.to_lat && step.from_lng === step.to_lng) {
@@ -83,7 +84,8 @@ function renderMap(steps) {
         weight: 2,
       }).addTo(map);
     } else {
-      layer = L.polyline([from, to], {
+      const points = hasPath ? step.path : [from, to];
+      layer = L.polyline(points, {
         color: MODE_COLORS[step.mode] || "#666",
         weight: 4,
         opacity: 0.8,

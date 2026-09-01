@@ -156,7 +156,8 @@ html, body {
   cursor: default;
 }
 
-#stop-search-results {
+#stop-search-results,
+#route-spot-search-results {
   max-height: 160px;
   overflow-y: auto;
   margin-top: 4px;

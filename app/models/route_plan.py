@@ -109,6 +109,16 @@ class ItineraryStep(BaseModel):
     from_lng: float = Field(description="Longitude at the start of this step.")
     to_lat: float = Field(description="Latitude at the end of this step.")
     to_lng: float = Field(description="Longitude at the end of this step.")
+    path: list[list[float]] = Field(
+        default_factory=list,
+        description=(
+            "Ordered [lat, lng] points of the actual route geometry (road "
+            "path for walking/taxi, GTFS shape for bus), for map display. "
+            "Empty for 'stay'/'wait' steps and when no real path is known "
+            "(e.g. bus trip has no GTFS shape) — draw a straight line "
+            "between from_lat/from_lng and to_lat/to_lng in that case."
+        ),
+    )
     cost_jpy: int | None = Field(
         None,
         description=(

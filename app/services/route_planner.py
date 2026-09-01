@@ -251,6 +251,10 @@ async def _build_leg(
                 from_lng=origin_stop["stop_lon"],
                 to_lat=destination_stop["stop_lat"],
                 to_lng=destination_stop["stop_lon"],
+                path=engine.bus_leg_path(
+                    bus["trip_id"], origin_stop["stop_id"], destination_stop["stop_id"]
+                )
+                or [],
             )
             leg_steps.append(bus_step)
             next_order += 1
@@ -311,6 +315,7 @@ async def _walking_step(
         from_lng=from_lng,
         to_lat=to_lat,
         to_lng=to_lng,
+        path=route.path,
     )
     return step, end_minutes
 
@@ -343,6 +348,7 @@ async def _taxi_step(
         from_lng=from_lng,
         to_lat=to_lat,
         to_lng=to_lng,
+        path=route.path,
     )
     return step, end_minutes
 

@@ -1,6 +1,6 @@
 # 実装計画書
 
-更新日: 2026-08-30
+更新日: 2026-09-01
 
 ## 方針
 
@@ -574,3 +574,40 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 テスト: 往復を前提にしていた既存テスト（`test_build_route_plan_success`ほか）は、`target_spot_ids`の末尾に明示的に`base_location_id`を重複指定する形に更新（アサーション自体は変更不要だった＝往復の挙動は完全互換）。新規に片道の基本ケース（`test_build_route_plan_one_way_ends_at_last_target`/API版）と、往復の最終レグで`required_arrival_time`が効くこと・効かせて不成立にできることを検証する2テスト（`test_build_route_plan_honors_required_arrival_time_on_round_trip_return`/`..._errors_when_round_trip_return_deadline_missed`）を追加。`python -m pytest`で104 tests passed。
 
 検証: 実データ・実UIで「那須塩原駅→那須湯本温泉→ホテルエピナール那須」を片道（チェックボックスOFF）で検索し、往路のみで終了（復路なし、最終地点にstayステップなし）することを確認。同じ選択でチェックボックスをONにすると選択リストの表示が「終点」から番号バッジに切り替わることを確認。往復（チェックボックスON）でのリクエスト送信自体も確認できたが、この session で実ORS APIを繰り返し叩いたためレート制限（`ORS_MAX_REQUESTS_PER_MINUTE`ローカル制限とは別に、ORS側実クォータと思われる）により最終確認は`徒歩・タクシー区間の経路計算に失敗`で不成立となった。ロジック自体はpytestの往復系テストで検証済みのため問題はないと判断。
+
+## デバッグUIの実用性改善 + 実経路表示（2026-09-01）
+
+ユーザーが実際にデバッグUIを使ってみたフィードバックとして2点の要望があった:
+
+1. 「候補地追加がやりにくいので専用のUIが欲しい。経由地を名前だけいれて列挙していき、終点と始点などの装飾をつけるようにしたい」
+2. 「経路の表示にて地図で直線で結ぶのではなく通る経路で見たい。」
+
+### 1. 名前検索によるルート作成UI
+
+これまで経由地の追加は「ルート作成モード」ONにして地図上の小さいスポットマーカーを正確にクリックする方式のみで、密集エリアでのクリック精度が課題だった（過去のセッションでも同様の課題が記録されている）。
+
+- `app/static/index.html`/`app.js`: 「ルート作成」パネルに、スポット名で絞り込み検索してクリックで追加するテキスト入力（`#route-spot-search`、既存の「停留所検索」と同じUXパターン）を新設。追加ロジックは`addSpotToRoute(spot)`として既存のマーカークリックハンドラと共通化。
+- 地図クリックでの追加方式（旧「ルート作成モード」）はボタンを「地図クリックで経由地を追加」に改名して残し、既存の`スポット追加`パネルの「地図クリックで追加」ボタンとのラベル衝突を避けた。
+- `spots`（読み込み済みスポット一覧）をモジュールスコープの`let`変数として保持するよう変更（従来は`loadSpots()`内のローカル変数だった）。
+- 起点/`番号`/終点のバッジ表示は既存の`renderRouteSelection()`のロジックがそのまま適用されるため変更不要だった。
+
+検証中に判明した副次的な問題: ブラウザがJS/HTML変更後も古い`app.js`をキャッシュから配信し続け、新しいUIの見た目（HTML）は反映されるがロジック（JS）は反映されないという不整合が発生した（`fetch(..., {cache:'no-store'})`では新しい内容が返るのに、`<script src>`タグ経由の読み込みはキャッシュを使い続けていた）。ハードリロード（Cmd+Shift+R）で解消。実装上の問題ではなく検証環境（同一タブを何度も使い回した）起因。
+
+### 2. 実際の経路に沿った地図表示
+
+これまで`results.html`は各ステップの`from_lat/lng`→`to_lat/lng`を直線で結んでいた。実際の道路・バス路線に沿った表示に変更。
+
+バックエンド:
+
+- `app/services/ors_client.py`: `RouteEstimate`に`path: list[list[float]]`を追加。ORSのGeoJSONレスポンス（`features[0].geometry.coordinates`、`[lng,lat]`の配列）をパースして`[lat,lng]`に変換して格納。geometryが取得できない場合は起点・終点のみの直線にフォールバック。
+- `app/services/gtfs_engine.py`: `DirectBusOption`に`shape_id`を追加（`search_next_bus()`の返り値に含める）。新規メソッド`bus_leg_path(trip_id, origin_stop_id, dest_stop_id)`: トリップのshape全体（`shapes.txt`由来、`route_shapes()`と共通の`_shape_points()`ヘルパーに切り出し）から、乗車停留所・降車停留所それぞれに最も近い点のインデックスを求め、その区間だけをスライスして返す（乗車区間のみを表示するため）。shapeが無い・停留所が見つからない・スライス方向が逆転する場合は`None`を返し、呼び出し側は直線にフォールバックする。
+- `app/services/route_planner.py`: `_walking_step`/`_taxi_step`は`route.path`をそのまま`ItineraryStep.path`に設定。バスステップ生成部は`engine.bus_leg_path(...)`の結果を設定。
+- `app/models/route_plan.py`: `ItineraryStep`に`path: list[list[float]]`（デフォルト空リスト）を追加。AIエージェント向けのフィールド説明も付記。
+
+フロントエンド:
+
+- `app/static/results.js`: `L.polyline([from, to], ...)`だった箇所を、`step.path`が2点以上あればそれを使い、無ければ直線にフォールバックするよう変更。地図の`fitBounds`も直線の2点ではなく実際のpath全点を使うよう変更（実経路が直線区間の外側に膨らむケースでも全体が収まるように）。
+
+テスト: `tests/test_gtfs_engine.py`に`bus_leg_path()`の3テスト（区間スライス成功・shape無しトリップ・shapeファイル自体が無いフィード）を追加。既存の`search_next_bus`の完全一致アサーションに`shape_id`を追記。`tests/test_ors_client.py`にgeometryありレスポンスのパーステスト、geometry無し時の直線フォールバックのアサーションを追加。`tests/test_route_planner.py`の共有フェイク（`fake_walking_route`）に`path=[[lat1,lng1],[lat2,lng2]]`を設定するよう変更（既存テストへの副作用なし、`path`はデフォルト空リストのため未設定でも壊れない設計）。フラグシップの成功テストにバスステップ・徒歩ステップの`path`アサーションを追加。`python -m pytest`で108 tests passed。
+
+検証: `claude-in-chrome`で実データ・実UI・実ORSを使い、「那須塩原駅→那須湯本温泉→ホテルエピナール那須」の片道ルートを名前検索のみで作成（マップクリック不要）し検索を実行。結果ページで各ステップの`path`が実際に複数点（徒歩10〜58点、バス212〜711点）持つことを確認。徒歩区間をズームして表示したところ、実際の道路の曲がりに沿ったポリラインが描画されていること（直線でないこと）を目視確認した。
