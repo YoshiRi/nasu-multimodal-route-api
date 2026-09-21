@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.deps import get_gtfs_engine, get_spot_repository
 from app.models.errors import ErrorResponse
 from app.models.route_plan import RoutePlanRequest, RoutePlanResponse
-from app.services.gtfs_engine import GTFSEngine
+from gtfs_multifeed import GTFSEngine
 from app.services.route_planner import RoutePlanInputError, build_route_plan
 from app.services.spot_repository import SpotRepository
 

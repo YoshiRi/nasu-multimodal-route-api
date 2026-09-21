@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+
+from gtfs_multifeed import GTFSEngine, haversine_distance_m, parse_gtfs_time_to_minutes
 
 from app.models.route_plan import (
     DEFAULT_DWELL_MINUTES,
@@ -9,10 +12,13 @@ from app.models.route_plan import (
     RoutePlanRequest,
     RoutePlanResponse,
 )
-from app.services.gtfs_engine import GTFSEngine, haversine_distance_m, parse_gtfs_time_to_minutes
 from app.services.ors_client import OrsRequestError, get_driving_route, get_walking_route
 from app.services.spot_repository import Spot, SpotNotFoundError, SpotRepository
 from app.services.taxi_fare import estimate_fare_jpy
+
+# (distance_m) -> fare in JPY. The default is an unverified reference
+# formula — see app/services/taxi_fare.py.
+FareEstimator = Callable[[float], int]
 
 NEAREST_STOP_RADIUS_M = 1500
 
@@ -52,6 +58,7 @@ async def build_route_plan(
     request: RoutePlanRequest,
     engine: GTFSEngine,
     spots: SpotRepository,
+    fare_estimator: FareEstimator = estimate_fare_jpy,
 ) -> RoutePlanResponse:
     try:
         base = spots.get(request.base_location_id)
@@ -83,7 +90,8 @@ async def build_route_plan(
             ]
 
             result = await _compute_plan(
-                base, targets, dwell_minutes, required_arrival_minutes, request, engine
+                base, targets, dwell_minutes, required_arrival_minutes, request, engine,
+                fare_estimator,
             )
 
             if result.status == "success":
@@ -117,6 +125,7 @@ async def _compute_plan(
     required_arrival_minutes: list[int | None],
     request: RoutePlanRequest,
     engine: GTFSEngine,
+    fare_estimator: FareEstimator,
 ) -> RoutePlanResponse:
     # The trip ends at the last entry in `targets` — there is no automatic
     # return to `base`. A round trip is expressed by the caller listing
@@ -137,6 +146,7 @@ async def _compute_plan(
             request.departure_date,
             request.transfer_buffer_minutes,
             step_order,
+            fare_estimator,
         )
         if leg_steps is None:
             return _infeasible_response(len(targets))
@@ -183,16 +193,21 @@ async def _build_leg(
     departure_date: str,
     transfer_buffer_minutes: int,
     step_order: int,
+    fare_estimator: FareEstimator,
 ) -> list[ItineraryStep] | None:
     origin_candidates = _nearest_stop_candidates(origin, engine)
     destination_candidates = _nearest_stop_candidates(destination, engine)
 
     if not origin_candidates or not destination_candidates:
-        step, cursor.minutes = await _direct_step(origin, destination, cursor.minutes, step_order)
+        step, cursor.minutes = await _direct_step(
+            origin, destination, cursor.minutes, step_order, fare_estimator
+        )
         return [step]
 
     if origin_candidates[0]["stop_id"] == destination_candidates[0]["stop_id"]:
-        step, cursor.minutes = await _direct_step(origin, destination, cursor.minutes, step_order)
+        step, cursor.minutes = await _direct_step(
+            origin, destination, cursor.minutes, step_order, fare_estimator
+        )
         return [step]
 
     # Cache each origin candidate's walking step so it's computed at most
@@ -276,14 +291,18 @@ def _nearest_stop_candidates(spot: Spot, engine: GTFSEngine) -> list[dict[str, s
 
 
 async def _direct_step(
-    origin: Spot, destination: Spot, start_minutes: int, step_order: int
+    origin: Spot,
+    destination: Spot,
+    start_minutes: int,
+    step_order: int,
+    fare_estimator: FareEstimator,
 ) -> tuple[ItineraryStep, int]:
     direct_distance_m = haversine_distance_m(origin.lat, origin.lng, destination.lat, destination.lng)
     if direct_distance_m > MAX_DIRECT_WALKING_DISTANCE_M:
         return await _taxi_step(
             origin.name, origin.lat, origin.lng,
             destination.name, destination.lat, destination.lng,
-            start_minutes, step_order,
+            start_minutes, step_order, fare_estimator,
         )
     return await _walking_step(
         origin.name, origin.lat, origin.lng,
@@ -329,9 +348,10 @@ async def _taxi_step(
     to_lng: float,
     start_minutes: int,
     step_order: int,
+    fare_estimator: FareEstimator,
 ) -> tuple[ItineraryStep, int]:
     route = await get_driving_route(from_lat, from_lng, to_lat, to_lng)
-    cost_jpy = estimate_fare_jpy(route.distance_m)
+    cost_jpy = fare_estimator(route.distance_m)
     end_minutes = start_minutes + route.duration_min
     step = ItineraryStep(
         step_order=step_order,

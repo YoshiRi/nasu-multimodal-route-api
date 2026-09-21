@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.deps import get_gtfs_engine
 from app.models.errors import ErrorResponse
 from app.models.plan import GraphDataRequest, GraphDataResponse, GraphEdge
-from app.services.gtfs_engine import GTFSEngine
+from gtfs_multifeed import GTFSEngine
 
 router = APIRouter(prefix="/plan", tags=["plan"])
 

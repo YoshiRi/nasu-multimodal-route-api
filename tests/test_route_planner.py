@@ -6,7 +6,7 @@ import pytest
 
 import app.services.route_planner as route_planner
 from app.models.route_plan import RoutePlanRequest
-from app.services.gtfs_engine import GTFSEngine
+from gtfs_multifeed import GTFSEngine
 from app.services.ors_client import OrsRequestError, RouteEstimate
 from app.services.route_planner import RoutePlanInputError, build_route_plan
 from app.services.spot_repository import SpotRepository
@@ -378,6 +378,36 @@ async def test_build_route_plan_uses_taxi_when_no_nearby_stop_and_distance_is_lo
     assert taxi_step.cost_jpy is not None
     assert taxi_step.cost_jpy > 0
     assert "円" in taxi_step.details
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_uses_supplied_fare_estimator(
+    tmp_path: Path, engine: GTFSEngine, fake_driving_route
+) -> None:
+    # The bundled fare formula is an unverified reference value, so callers
+    # must be able to substitute real local rates.
+    spots = _spot_repository_at(
+        tmp_path,
+        [
+            {"spot_id": "far_base", "name": "Far Base", "lat": 0.0, "lng": 0.0},
+            {"spot_id": "far_target", "name": "Far Target", "lat": 0.05, "lng": 0.0},
+        ],
+    )
+    request = RoutePlanRequest(
+        base_location_id="far_base",
+        target_spot_ids=[{"spot_id": "far_target"}],
+        departure_time="10:00",
+        departure_date="2026-08-17",
+    )
+
+    response = await build_route_plan(
+        request, engine, spots, fare_estimator=lambda distance_m: 12345
+    )
+
+    assert response.status == "success"
+    taxi_step = next(step for step in response.plans[0].steps if step.mode == "taxi")
+    assert taxi_step.cost_jpy == 12345
+    assert "12345円" in taxi_step.details
 
 
 MULTI_OPERATOR_NEAR_DIR = Path(__file__).parent / "fixtures" / "multi_operator_near"

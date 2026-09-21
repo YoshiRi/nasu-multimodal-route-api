@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 import app.services.route_planner as route_planner
 from app.api.deps import get_gtfs_engine, get_spot_repository
 from app.main import app
-from app.services.gtfs_engine import GTFSEngine
+from gtfs_multifeed import GTFSEngine
 from app.services.ors_client import RouteEstimate
 from app.services.spot_repository import SpotRepository
 

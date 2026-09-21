@@ -8,8 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-import scripts.download_gtfs as dg
-from scripts.download_gtfs import (
+from gtfs_multifeed import (
     FeedConfig,
     download_zip,
     extract_gtfs_zip,
@@ -157,12 +156,14 @@ def test_read_feed_info_missing_file_returns_none_fields(tmp_path: Path) -> None
     }
 
 
-def test_manifest_round_trip(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(dg, "MANIFEST_PATH", tmp_path / "gtfs_manifest.json")
+def test_manifest_round_trip(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "gtfs_manifest.json"
 
-    save_manifest({"nasushiobara": {"downloaded_at": "2026-08-20T00:00:00+00:00"}})
+    save_manifest(manifest_path, {"some_feed": {"downloaded_at": "2026-08-20T00:00:00+00:00"}})
 
-    assert load_manifest() == {"nasushiobara": {"downloaded_at": "2026-08-20T00:00:00+00:00"}}
+    assert load_manifest(manifest_path) == {
+        "some_feed": {"downloaded_at": "2026-08-20T00:00:00+00:00"}
+    }
 
 
 def test_update_feed_records_manifest_entry(
@@ -195,13 +196,13 @@ def test_update_feed_records_manifest_entry(
 
 
 def test_print_status_reports_expired_and_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     manifest_path = tmp_path / "gtfs_manifest.json"
     manifest_path.write_text(
         json.dumps(
             {
-                "nasushiobara": {
+                "downloaded_feed": {
                     "downloaded_at": "2020-01-01T00:00:00+00:00",
                     "feed_start_date": "20190401",
                     "feed_end_date": "20200101",
@@ -212,11 +213,22 @@ def test_print_status_reports_expired_and_missing(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(dg, "MANIFEST_PATH", manifest_path)
+    feeds = [
+        FeedConfig(
+            slug="downloaded_feed",
+            url_env_var="DOWNLOADED_FEED_URL",
+            dest_dir=tmp_path / "downloaded",
+        ),
+        FeedConfig(
+            slug="missing_feed",
+            url_env_var="MISSING_FEED_URL",
+            dest_dir=tmp_path / "missing",
+        ),
+    ]
 
-    assert print_status() == 0
+    assert print_status(feeds, manifest_path) == 0
 
     out = capsys.readouterr().out
-    assert "nasushiobara" in out
+    assert "downloaded_feed" in out
     assert "EXPIRED" in out
     assert "not downloaded yet" in out

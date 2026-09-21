@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.cli import main
+from gtfs_multifeed.cli import main
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "minimal_gtfs"

@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import Depends
 
 from app.core.config import Settings, get_settings
-from app.services.gtfs_engine import GTFSEngine
+from gtfs_multifeed import GTFSEngine
 from app.services.spot_repository import SpotRepository
 
 

@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.api.deps import get_gtfs_engine
 from app.main import app
-from app.services.gtfs_engine import GTFSEngine
+from gtfs_multifeed import GTFSEngine
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "minimal_gtfs"
 

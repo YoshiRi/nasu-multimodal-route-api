@@ -8,7 +8,7 @@ from app.api.deps import get_gtfs_engine
 from app.models.errors import ErrorResponse
 from app.models.network import NetworkResponse
 from app.models.transit import BusTripOption, NearbyStop
-from app.services.gtfs_engine import GTFSEngine
+from gtfs_multifeed import GTFSEngine
 
 router = APIRouter(prefix="/transit", tags=["transit"])
 

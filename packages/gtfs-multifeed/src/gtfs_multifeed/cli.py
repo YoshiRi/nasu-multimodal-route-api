@@ -5,7 +5,7 @@ import json
 import sys
 from collections.abc import Sequence
 
-from app.services.gtfs_engine import GTFSEngine
+from gtfs_multifeed.engine import GTFSEngine
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -21,17 +21,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="nasu-route",
-        description="GTFS-based route planning PoC CLI for the Nasu area.",
+        prog="gtfs-multifeed",
+        description="Query GTFS feeds from the command line.",
     )
     subparsers = parser.add_subparsers(dest="command")
 
     search_bus = subparsers.add_parser(
         "search-bus",
-        help="Search direct bus trips between two GTFS stops.",
+        help="Search direct trips between two GTFS stops.",
         description=(
-            "Search direct bus trips that depart from the origin stop at or after "
-            "the specified GTFS time."
+            "Search direct trips that depart from the origin stop at or after "
+            "the specified GTFS time. Direct trips only — transfers are not "
+            "considered."
         ),
     )
     search_bus.add_argument(

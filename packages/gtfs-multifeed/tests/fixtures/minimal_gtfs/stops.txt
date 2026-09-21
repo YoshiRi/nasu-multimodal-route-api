@@ -1,0 +1,5 @@
+stop_id,stop_name,stop_lat,stop_lon
+stop_yumoto,那須湯本,37.0950,140.0010
+stop_ropeway,那須ロープウェイ,37.1240,139.9850
+stop_station,那須塩原駅,36.9310,140.0200
+stop_extra,その他停留所,36.9320,140.0210

@@ -1,6 +1,6 @@
 # 実装計画書
 
-更新日: 2026-09-01
+更新日: 2026-09-21
 
 ## 方針
 
@@ -611,3 +611,55 @@ API結線: 完了。`app/core/config.py` の `Settings.gtfs_feeds` は `dict[str
 テスト: `tests/test_gtfs_engine.py`に`bus_leg_path()`の3テスト（区間スライス成功・shape無しトリップ・shapeファイル自体が無いフィード）を追加。既存の`search_next_bus`の完全一致アサーションに`shape_id`を追記。`tests/test_ors_client.py`にgeometryありレスポンスのパーステスト、geometry無し時の直線フォールバックのアサーションを追加。`tests/test_route_planner.py`の共有フェイク（`fake_walking_route`）に`path=[[lat1,lng1],[lat2,lng2]]`を設定するよう変更（既存テストへの副作用なし、`path`はデフォルト空リストのため未設定でも壊れない設計）。フラグシップの成功テストにバスステップ・徒歩ステップの`path`アサーションを追加。`python -m pytest`で108 tests passed。
 
 検証: `claude-in-chrome`で実データ・実UI・実ORSを使い、「那須塩原駅→那須湯本温泉→ホテルエピナール那須」の片道ルートを名前検索のみで作成（マップクリック不要）し検索を実行。結果ページで各ステップの`path`が実際に複数点（徒歩10〜58点、バス212〜711点）持つことを確認。徒歩区間をズームして表示したところ、実際の道路の曲がりに沿ったポリラインが描画されていること（直線でないこと）を目視確認した。
+
+## リリースに向けたパッケージ分割と公開準備（2026-09-21）
+
+ユーザーより「そろそろ完成とリリースに向けて動きたい。GTFSデータを集めてそれを横断的に検索する仕組み、それを組み合わせてルーティングを行う仕組み、可視化UI のような粒度ごとに完成した小さなパーツとして公開可能なレベルに修正して公開できるだろうか」という要望。
+
+調査の結果、層構造はすでに綺麗に分かれていた（`gtfs_engine.py` はapp内部への依存がゼロ、pandas と標準ライブラリのみ）。ただし3つの部品は公開適性が等しくない — GTFS層だけが那須非依存で汎用的価値を持ち、ルーティング層は実運賃未検証のtaxi_fare・那須固有のスポットマスタ・乗り継ぎ非対応という制約を抱える。そのため**3等分ではなく非対称分割**を採用した（ユーザー承認済み）。
+
+決定事項: 非対称分割 / MITライセンス / 公開範囲はリポジトリ公開レベルまで（PyPI実アップロードは対象外） / taxi_fareは差し替え可能にする。
+
+### 公開前ブロッカーの解消
+
+- **LICENSEファイルが存在しなかった** → MITをリポジトリrootとライブラリの両方に追加。
+- **`gtfs-kit` が依存関係に宣言されていたがコード内で一度も使われていなかった** → 削除。
+- 秘密情報の混入は事前に確認しゼロだった（`.env` は未追跡、関東自動車APIキーは全コミット履歴を `git log -S` / `git grep` で走査して不検出）。
+
+### 分割の内容
+
+モノレポ構成を採用（アプリは root の `app/` に残し、ライブラリを `packages/gtfs-multifeed/` に新設）。アプリ側の全パス・`uvicorn app.main:app`・静的ファイルmount・`REPO_ROOT` 計算が変わらず churn を最小化できるため。ライブラリは独自の `pyproject.toml` を持ち単独配布可能なので、将来 `git filter-repo` で別リポジトリに切り出せる。
+
+ライブラリ `gtfs-multifeed`（依存は pandas と httpx のみ）:
+- `engine.py` ← `app/services/gtfs_engine.py` をロジック無改造で移動。
+- `feeds.py` ← `scripts/download_gtfs.py` の汎用部分。モジュール定数だった `MANIFEST_PATH` とグローバル `FEEDS` を引数で受け取る形に変更し（`load_manifest`/`save_manifest`/`print_status`）、CLI組み立てを `run_cli(feeds, manifest_path, ...)` として公開。ここが唯一の実質的なリファクタ。
+- `cli.py` ← `app/cli.py`。`prog` を `gtfs-multifeed` に、那須前提の説明文を一般化。
+- `discover_gtfs_feeds()` を `app/core/config.py` から移動（GTFSディレクトリ探索は汎用処理のため）。引数 `data_root` を必須化。
+
+アプリ側:
+- 那須3フィードの定義を `app/gtfs_feeds.py` に新設。`scripts/download_gtfs.py` はそれをライブラリCLIに渡すだけの薄いラッパ（289行→39行）に縮小。
+- `from app.services.gtfs_engine import ...` を `from gtfs_multifeed import ...` へ全面置換。
+
+### taxi_fare の差し替え対応
+
+`build_route_plan()` に `fare_estimator: FareEstimator = estimate_fare_jpy` を追加し、`_compute_plan` → `_build_leg` → `_direct_step` → `_taxi_step` へ引き回した（既存の `transfer_buffer_minutes` とまったく同じ経路のため既存スタイルと一致）。`taxi_fare.py` に `make_fare_estimator()` を追加して同じ式を別定数で使えるようにし、docstringで「未検証の参考値」であることを明示した。
+
+### テスト
+
+`test_gtfs_engine.py`→`test_engine.py`、`test_download_gtfs.py`→`test_feeds.py`、`test_cli.py` をライブラリ側へ移動。`test_config.py` は `discover_gtfs_feeds` のテストのみだったため内容を `test_engine.py` に統合して削除。fixture `minimal_gtfs`/`minimal_gtfs_other` はライブラリ側へ移し、アプリ側テスト7ファイルも `minimal_gtfs` を使うためアプリ側にコピーを保持（パッケージ間の暗黙結合を作らないことを優先）。`fare_estimator` の差し替えが実際に効くことを検証するテストを追加し、**108→109テスト**。
+
+### 検証
+
+1. root から `python -m pytest` で109テスト通過。
+2. **ライブラリの独立性を実証**: クリーンな venv に `gtfs-multifeed` のみをインストール（fastapi/pydantic/uvicorn が入らないことを確認）し、`GTFSEngine`・`search_next_bus`・`nearby_stops`・`bus_leg_path`・`discover_gtfs_feeds`・consoleスクリプトが fixture に対して動作することを確認。この環境では pandas 3.0.6（開発venvは2.x）が入ったが、ライブラリ単体テスト41件も全て通過した。
+3. `python scripts/download_gtfs.py --status` が従来通り3フィードの鮮度を表示。
+4. 実GTFS（停留所3164件・路線形状299件）・実スポット30件でAPIが起動し、`POST /plan/route-plan` が実経路付き（バス711点・徒歩58点等）で成立。
+5. `claude-in-chrome` でデバッグUIを操作し、名前検索でのルート作成 → 起点/番号/終点バッジ → 検索 → 結果画面（実経路の地図＋タイムライン）まで回帰がないことを確認。
+
+### 残作業（今回対象外）
+
+- PyPIへの実アップロード（パッケージ名 `gtfs-multifeed` の空き確認、アカウント/トークン準備、build/upload）
+- 乗り継ぎ（transfer）対応
+- CI（GitHub Actions）の構築
+- `/plan/graph-data` への徒歩エッジ統合
+- タクシー実運賃の調査

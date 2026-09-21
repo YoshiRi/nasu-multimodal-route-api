@@ -3,8 +3,9 @@ from datetime import date
 
 import pytest
 
-from app.services.gtfs_engine import (
+from gtfs_multifeed import (
     GTFSEngine,
+    discover_gtfs_feeds,
     parse_gtfs_time_to_minutes,
     parse_service_date_to_gtfs_date,
 )
@@ -223,3 +224,21 @@ def test_parse_gtfs_time_to_minutes_rejects_invalid_minute() -> None:
 def test_parse_service_date_to_gtfs_date_accepts_iso_and_compact_dates() -> None:
     assert parse_service_date_to_gtfs_date("2026-08-20") == "20260820"
     assert parse_service_date_to_gtfs_date("20260820") == "20260820"
+
+
+def test_discover_gtfs_feeds_returns_empty_for_missing_root(tmp_path: Path) -> None:
+    assert discover_gtfs_feeds(tmp_path / "does-not-exist") == {}
+
+
+def test_discover_gtfs_feeds_finds_valid_feed_subdirectories(tmp_path: Path) -> None:
+    import shutil
+
+    shutil.copytree(FIXTURE_DIR, tmp_path / "feed_a")
+    shutil.copytree(OTHER_FIXTURE_DIR, tmp_path / "feed_b")
+    (tmp_path / "not_a_feed").mkdir()
+    (tmp_path / "not_a_feed" / "readme.txt").write_text("no GTFS files here")
+
+    feeds = discover_gtfs_feeds(tmp_path)
+
+    assert set(feeds) == {"feed_a", "feed_b"}
+    assert feeds["feed_a"] == tmp_path / "feed_a"

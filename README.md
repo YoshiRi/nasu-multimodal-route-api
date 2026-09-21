@@ -1,118 +1,159 @@
 # Nasu Multimodal Route API
 
-PoC backend for multimodal route planning in the Nasu area using GTFS bus data, walking routes, and taxi-like driving estimates.
+Multimodal route planning for Japan's Nasu area — bus (GTFS) plus walking and
+taxi — exposed as an OpenAPI service designed to be driven by an AI travel
+agent rather than a human.
 
-Current focus: bus search (`/transit/stops/nearby`, `/transit/routes`), walking/taxi point-to-point estimates (`GET /non-transit/route`), a bus-only batch cost graph (`POST /plan/graph-data`), and a bus+walking itinerary builder for an AI travel concierge (`POST /plan/route-plan`). Walking and taxi both go through OpenRouteService instead of Google Maps.
+This repository holds two independently useful pieces:
 
-## Development
+| | What it is | Where |
+|---|---|---|
+| **`gtfs-multifeed`** | A general-purpose library for querying GTFS feeds from multiple operators as one network. Nothing in it is specific to Nasu — it works with any GTFS data. | [`packages/gtfs-multifeed/`](packages/gtfs-multifeed/) |
+| **The Nasu app** | The FastAPI service, itinerary builder, and debug UI. Nasu-specific: feed registry, spot master, fare assumptions. | `app/` |
+
+The app depends on the library, not the other way around. If you only want to
+query GTFS data, you want the library — see
+[its README](packages/gtfs-multifeed/README.md).
+
+## Status and limitations
+
+A working proof of concept, honest about what it doesn't do:
+
+- **Bus routing finds direct trips only — no transfers.** A leg is only
+  feasible if one vehicle serves both stops.
+- **Taxi fares are an unverified reference formula**, not real Nasu tariffs.
+  Substitute your own via `build_route_plan(..., fare_estimator=...)` — see
+  `app/services/taxi_fare.py`.
+- Visit order is taken as given; there is no route optimization.
+- The spot master is 30 hand-collected places, not an exhaustive dataset.
+
+## Setup
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
+python -m pip install -e packages/gtfs-multifeed
 python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
-## Phase 1 CLI
-
-Search direct bus trips from GTFS CSV files:
-
-```bash
-python -m app.cli search-bus \
-  --gtfs-dir tests/fixtures/minimal_gtfs \
-  --from stop_yumoto \
-  --to stop_ropeway \
-  --time 10:00 \
-  --date 2026-08-17
-```
-
-After installing the package, the console script is also available:
+Walking and taxi legs call [OpenRouteService](https://openrouteservice.org/),
+so `POST /plan/route-plan` and `GET /non-transit/route` need an API key:
 
 ```bash
-nasu-route search-bus \
-  --gtfs-dir tests/fixtures/minimal_gtfs \
-  --from stop_yumoto \
-  --to stop_ropeway \
-  --time 10:00 \
-  --date 2026-08-17
+cp .env.example .env   # then set ORS_API_KEY (free signup)
 ```
-
-## Phase 2 API
-
-```bash
-uvicorn app.main:app --reload
-```
-
-GTFS source is picked automatically, in this order:
-
-1. `GTFS_DIR` env var, if set — a single directory, IDs used as-is.
-2. Otherwise, every valid feed subdirectory under `data/gtfs/` (populated by `scripts/download_gtfs.py`). One feed is used as-is; more than one is merged with `"<feed_name>:"`-prefixed IDs (e.g. `nasushiobara:1_01`) to keep operators' IDs from colliding.
-3. Otherwise, falls back to `tests/fixtures/minimal_gtfs` so the API runs with no setup.
-
-Open `http://localhost:8000/docs` for Swagger UI, or call directly:
-
-```bash
-curl "http://localhost:8000/transit/routes?origin_stop_id=stop_yumoto&destination_stop_id=stop_ropeway&departure_time=10:00&departure_date=2026-08-17"
-curl "http://localhost:8000/transit/stops/nearby?lat=37.095&lng=140.001&radius_m=1000"
-curl -X POST http://localhost:8000/plan/graph-data \
-  -H "Content-Type: application/json" \
-  -d '{"stop_ids": ["stop_yumoto", "stop_ropeway"], "departure_time": "09:00"}'
-```
-
-`POST /plan/graph-data` returns direct bus options for every ordered pair among 2-15 given `stop_ids` in one call, so an AI agent doesn't need one `/transit/routes` request per pair. It's bus-only for now (`mode` is always `"bus"`); walking/taxi edges are not merged in yet even though `/non-transit/route` (below) is available.
-
-## Walking/taxi estimates
-
-```bash
-curl "http://localhost:8000/non-transit/route?origin_lat=37.095&origin_lng=140.001&dest_lat=37.124&dest_lng=139.985&mode=walking"
-curl "http://localhost:8000/non-transit/route?origin_lat=37.095&origin_lng=140.001&dest_lat=37.124&dest_lng=139.985&mode=taxi"
-```
-
-Both modes call OpenRouteService (`ORS_API_KEY` required); `taxi` adds a `cost_jpy` estimate from `app/services/taxi_fare.py` — **a placeholder formula, not confirmed against real Nasu-area taxi rates**. Every ORS call (from this endpoint and from `/plan/route-plan`) shares one in-process rate limit (`app/services/rate_limiter.py`, 30/min by default) to stay under ORS's free-tier quota; exceeding it returns HTTP 429, and an ORS-side failure returns HTTP 503.
-
-## Phase 4: route-plan (AI travel concierge)
-
-`POST /plan/route-plan` builds one bus+walking itinerary (base → each target spot in the given order), calling `GTFSEngine` for bus legs and [OpenRouteService](https://openrouteservice.org/) for walking legs. The trip ends at the *last* entry in `target_spot_ids` — it's one-way by default; for a round trip, list `base_location_id` again as the final target (its `dwell_minutes` is ignored since the trip ends there, but `required_arrival_time` still applies, e.g. "must be back by 20:00"). It's designed for an LLM agent, not a human: a well-formed request always returns HTTP 200 — `status: "success"` with a `plans` entry, or `status: "error"` with an `ai_hint` explaining what to change (e.g. too many spots for the remaining bus schedule) and no plans. Malformed requests (unknown spot ID, bad date) still return HTTP 4xx.
-
-```bash
-cp .env.example .env   # then set ORS_API_KEY (free signup at openrouteservice.org)
-uvicorn app.main:app --reload
-curl -X POST http://localhost:8000/plan/route-plan \
-  -H "Content-Type: application/json" \
-  -d '{"base_location_id": "spot_nasu_yumoto_onsen", "target_spot_ids": [{"spot_id": "spot_nasu_ropeway", "dwell_minutes": 90}], "departure_time": "10:00", "departure_date": "2026-08-17"}'
-```
-
-Spots (`base_location_id`/`target_spot_ids`) come from `data/spots/nasu_spots.json` (`spot_id`/`name`/`lat`/`lng`; override with `SPOTS_FILE`) — not GTFS `stop_id`s. Seeded with 30 real Nasu-area spots (Nasu Town's well-known attractions plus Nasushiobara City's official open-data tourism spots); add more via `POST /spots` or the debug UI. The nearest GTFS stop to each spot is resolved on the fly via `GTFSEngine.nearby_stops()`. Visit order currently follows `target_spot_ids` as given (no route optimization yet). Each target spot takes an optional `dwell_minutes` (defaults to 60 if omitted) for how long to stay there, and an optional `required_arrival_time` ("HH:MM") for a fixed reservation/meeting time: arriving early inserts a `"wait"` step so the stay starts exactly on time, arriving too late makes the whole plan infeasible (`status: "error"`) instead of silently missing it. `app/services/ors_client.py`'s response parsing has been verified against a live `ORS_API_KEY`. Each `ItineraryStep` also carries a `path` field — the real route geometry (ORS geometry for walking/taxi, the GTFS shape sliced to the ridden segment for bus) as ordered `[lat, lng]` points, for accurate map drawing instead of a straight line between endpoints; it's empty when no real geometry is available.
-
-## Debug UI
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Open `http://localhost:8000/ui/` for a single-page Leaflet map (no build step, plain HTML/JS under `app/static/`): shows every currently-loaded GTFS stop and route shape (`GET /transit/network`), lets you search stops by name, shows spots (`GET /spots`), and lets you add a spot by clicking the map (`POST /spots`, persisted to `data/spots/*.json`).
-
-Build a route by typing spot names into the "ルート作成" search box and clicking a match to append it (1st = base, rest = targets in visit order) — or toggle "地図クリックで経由地を追加" to click existing spot markers on the map instead. The last added target is shown as "終点" (the trip ends there) unless "往復にする（起点に戻る）" is checked, which appends the base spot as the final target instead. Set the date/time and run "この行程を検索" to call `/plan/route-plan`; the result opens in a new tab (`results.html`) with a left/right split — a map of the itinerary's legs and a horizontal timeline — sharing data via `localStorage`. Clicking a timeline row zooms the map to that step. Walking/taxi legs draw the actual ORS route geometry and bus legs draw the actual GTFS shape (sliced to the ridden segment) — not a straight line between endpoints — falling back to a straight line only when no real geometry is available (e.g. a bus trip with no GTFS shape).
-
-Each selected target spot has a "⚙" settings toggle for `dwell_minutes`, `required_arrival_time` (reservation), and `required` (マスト — if unchecked, the spot is dropped and the rest replanned when it can't be fitted in, instead of failing the whole request). A global "バス乗り継ぎの余裕" input adds `transfer_buffer_minutes` of slack before every bus boarding, to absorb real-world schedule variance.
 
 ## GTFS data
 
-Real GTFS data is not committed (`data/gtfs/` is gitignored). The two public feeds (nasushiobara, nasutown) have a non-secret URL baked into `scripts/download_gtfs.py`, so no configuration is needed for them. The kanto_auto feed requires an API key:
+Real GTFS data is not committed (`data/gtfs/` is gitignored). Three feeds are
+configured in `app/gtfs_feeds.py`: Nasushiobara City, Nasu Town, and Kanto
+Jidousha. The first two are public and need no configuration; Kanto Jidousha
+requires an API key.
 
 ```bash
 cp .env.example .env   # then set KANTO_BUS_GTFS_API_KEY
 python scripts/download_gtfs.py            # download every resolvable feed
 python scripts/download_gtfs.py --feed nasushiobara
-python scripts/download_gtfs.py --status    # last-updated time and freshness per feed
+python scripts/download_gtfs.py --status   # last-updated time and freshness
 ```
 
-Only the API key is secret — the kanto_auto endpoint and `agency_id` live in source. Any feed's URL can still be overridden via its `<SLUG>_GTFS_URL` env var (e.g. to point at a local test server) if needed.
+Only the API key is secret — endpoints and `agency_id` live in source. Each
+download records its `feed_info.txt` validity period and a checksum in
+`data/gtfs_manifest.json`, which *is* committed, so `git log` doubles as an
+update history.
 
-Each successful download records its `feed_info.txt` validity period and a checksum in `data/gtfs_manifest.json`, which is committed (unlike the raw GTFS files) so `git log` doubles as an update history.
+## Running the API
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Open `http://localhost:8000/docs` for Swagger UI.
+
+GTFS source is picked automatically: `GTFS_DIR` if set, otherwise every valid
+feed under `data/gtfs/` (merged with `"<feed_name>:"`-prefixed IDs), otherwise
+`tests/fixtures/minimal_gtfs` so the API runs with no setup at all.
+
+### Endpoints
+
+```bash
+curl "http://localhost:8000/transit/routes?origin_stop_id=stop_yumoto&destination_stop_id=stop_ropeway&departure_time=10:00&departure_date=2026-08-17"
+curl "http://localhost:8000/transit/stops/nearby?lat=37.095&lng=140.001&radius_m=1000"
+curl "http://localhost:8000/non-transit/route?origin_lat=37.095&origin_lng=140.001&dest_lat=37.124&dest_lng=139.985&mode=walking"
+```
+
+`POST /plan/graph-data` returns direct bus options for every ordered pair
+among 2–15 `stop_ids` in one call, so an agent doesn't need one request per
+pair. Bus-only for now — walking/taxi edges are not merged in.
+
+Every ORS call shares one in-process rate limit
+(`app/services/rate_limiter.py`, 30/min by default) to stay under the free
+tier; exceeding it returns HTTP 429, and an ORS-side failure returns 503.
+
+### `POST /plan/route-plan` — the itinerary builder
+
+Builds one bus+walking itinerary from a base location through a list of
+spots. Designed for an LLM agent: a well-formed request always returns HTTP
+200 — either `status: "success"` with a plan, or `status: "error"` with an
+`ai_hint` explaining what to change. Only malformed requests (unknown spot ID,
+bad date) return 4xx.
+
+```bash
+curl -X POST http://localhost:8000/plan/route-plan \
+  -H "Content-Type: application/json" \
+  -d '{"base_location_id": "station_nasushiobara",
+       "target_spot_ids": [{"spot_id": "spot_nasu_ropeway", "dwell_minutes": 90}],
+       "departure_time": "10:00", "departure_date": "2026-08-17"}'
+```
+
+The trip **ends at the last entry** in `target_spot_ids` — one-way by default.
+For a round trip, list `base_location_id` again as the final target (its
+`dwell_minutes` is ignored, but `required_arrival_time` still applies, e.g.
+"must be back by 20:00").
+
+Each target accepts:
+
+- `dwell_minutes` — how long to stay (default 60)
+- `required_arrival_time` — a fixed reservation/meeting time. Arriving early
+  inserts a `wait` step; arriving late makes the plan infeasible rather than
+  silently missing it.
+- `required` — if `false`, the spot is dropped and the rest replanned when it
+  can't be fitted in, instead of failing the whole request.
+
+Request-level `transfer_buffer_minutes` adds slack before every bus boarding.
+
+Spots come from `data/spots/nasu_spots.json` (`spot_id`/`name`/`lat`/`lng`;
+override with `SPOTS_FILE`) — not GTFS `stop_id`s. The nearest usable GTFS
+stop is resolved on the fly. Each step carries a `path` of `[lat, lng]`
+points: real road geometry from ORS for walking/taxi, the GTFS shape sliced to
+the ridden segment for bus.
+
+## Debug UI
+
+```bash
+uvicorn app.main:app --reload   # then open http://localhost:8000/ui/
+```
+
+A single-page Leaflet map (no build step, plain HTML/JS in `app/static/`):
+shows every loaded GTFS stop and route shape, searches stops by name, and
+displays and adds spots.
+
+Build a route by typing spot names into the ルート作成 box and clicking matches
+(1st = base, rest = targets in order) — or toggle 地図クリックで経由地を追加 to
+click markers on the map instead. The last target shows as 終点 unless
+往復にする is checked. Results open in a new tab: a map of the itinerary's real
+geometry alongside a timeline, with rows that zoom the map when clicked.
+
+Per-spot ⚙ settings cover `dwell_minutes`, `required_arrival_time`, and
+`required`; a global input sets `transfer_buffer_minutes`.
 
 ## Documents
 
-- `docs/project-instruction.md`: original project instruction
-- `docs/spec-review.md`: implementation review and open questions
-- `docs/implementation-plan.md`: living implementation plan
+- `docs/project-instruction.md` — original project instruction
+- `docs/spec-review.md` — implementation review and open questions
+- `docs/implementation-plan.md` — living implementation plan and change log
+
+## License
+
+MIT — see [LICENSE](LICENSE).

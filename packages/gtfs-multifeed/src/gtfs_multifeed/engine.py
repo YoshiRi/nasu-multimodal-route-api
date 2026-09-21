@@ -510,6 +510,25 @@ def parse_service_date_to_gtfs_date(value: str | date) -> str:
     return parse_service_date(value).strftime("%Y%m%d")
 
 
+def discover_gtfs_feeds(data_root: Path) -> dict[str, Path]:
+    """Return {subdirectory name: path} for every valid GTFS feed under data_root.
+
+    A subdirectory counts as a feed only if it contains every file in
+    REQUIRED_GTFS_FILES, so partially-extracted or unrelated directories
+    are skipped. The result is ready to hand to GTFSEngine.from_feeds().
+    """
+
+    if not data_root.is_dir():
+        return {}
+
+    return {
+        entry.name: entry
+        for entry in sorted(data_root.iterdir())
+        if entry.is_dir()
+        and all((entry / file_name).exists() for file_name in REQUIRED_GTFS_FILES.values())
+    }
+
+
 def _nullable_str(value: object) -> str | None:
     text = str(value)
     return text or None
