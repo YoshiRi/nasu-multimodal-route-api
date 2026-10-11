@@ -8,7 +8,7 @@ This repository holds two independently useful pieces:
 
 | | What it is | Where |
 |---|---|---|
-| **`gtfs-multifeed`** | A general-purpose library for querying GTFS feeds from multiple operators as one network. Nothing in it is specific to Nasu — it works with any GTFS data. | [`packages/gtfs-multifeed/`](packages/gtfs-multifeed/) |
+| **`gtfs-multifeed`** | A general-purpose library for querying GTFS feeds from multiple operators as one network, including journeys that change vehicles. Nothing in it is specific to Nasu — it works with any GTFS data. | [`packages/gtfs-multifeed/`](packages/gtfs-multifeed/) |
 | **The Nasu app** | The FastAPI service, itinerary builder, and debug UI. Nasu-specific: feed registry, spot master, fare assumptions. | `app/` |
 
 The app depends on the library, not the other way around. If you only want to
@@ -19,8 +19,10 @@ query GTFS data, you want the library — see
 
 A working proof of concept, honest about what it doesn't do:
 
-- **Bus routing finds direct trips only — no transfers.** A leg is only
-  feasible if one vehicle serves both stops.
+- **Bus routing allows at most one transfer.** A leg between two spots may
+  change buses once, at a shared stop or one a short walk away (set
+  `max_transfers: 0` to restrict it to direct trips). Journeys needing two
+  or more changes are still out of reach.
 - **Taxi fares are an unverified reference formula**, not real Nasu tariffs.
   Substitute your own via `build_route_plan(..., fare_estimator=...)` — see
   `app/services/taxi_fare.py`.
@@ -121,7 +123,8 @@ Each target accepts:
 - `required` — if `false`, the spot is dropped and the rest replanned when it
   can't be fitted in, instead of failing the whole request.
 
-Request-level `transfer_buffer_minutes` adds slack before every bus boarding.
+Request-level `transfer_buffer_minutes` adds slack before every bus boarding,
+and `max_transfers` (default 1) controls whether a leg may change buses.
 
 Spots come from `data/spots/nasu_spots.json` (`spot_id`/`name`/`lat`/`lng`;
 override with `SPOTS_FILE`) — not GTFS `stop_id`s. The nearest usable GTFS

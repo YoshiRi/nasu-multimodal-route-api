@@ -147,6 +147,7 @@ async def _compute_plan(
             request.transfer_buffer_minutes,
             step_order,
             fare_estimator,
+            request.max_transfers,
         )
         if leg_steps is None:
             return _infeasible_response(len(targets))
@@ -194,6 +195,7 @@ async def _build_leg(
     transfer_buffer_minutes: int,
     step_order: int,
     fare_estimator: FareEstimator,
+    max_transfers: int,
 ) -> list[ItineraryStep] | None:
     origin_candidates = _nearest_stop_candidates(origin, engine)
     destination_candidates = _nearest_stop_candidates(destination, engine)
@@ -228,61 +230,146 @@ async def _build_leg(
             if origin_stop["stop_id"] == destination_stop["stop_id"]:
                 continue
 
-            bus_options = engine.search_next_bus(
+            journeys = engine.search_journeys(
                 origin_stop_id=origin_stop["stop_id"],
                 dest_stop_id=destination_stop["stop_id"],
                 departure_time=_format_minutes(board_minutes + transfer_buffer_minutes),
                 departure_date=departure_date,
+                max_transfers=max_transfers,
             )
-            if not bus_options:
+            if not journeys:
                 continue
 
-            bus = bus_options[0]
-            bus_departure_minutes = parse_gtfs_time_to_minutes(bus["departure_time"])
-            bus_arrival_minutes = parse_gtfs_time_to_minutes(bus["arrival_time"])
-
-            leg_steps = [walk_to_stop]
-            next_order = step_order + 1
-            if bus_departure_minutes > board_minutes:
-                leg_steps.append(
-                    _bus_wait_step(
-                        origin_stop["stop_name"], origin_stop["stop_lat"], origin_stop["stop_lon"],
-                        board_minutes, bus_departure_minutes, next_order,
-                    )
-                )
-                next_order += 1
-
-            bus_step = ItineraryStep(
-                step_order=next_order,
-                mode="bus",
-                start_time=_format_minutes(bus_departure_minutes),
-                end_time=_format_minutes(bus_arrival_minutes),
-                title=f"バス（{bus['line_name']}）",
-                details=(
-                    f"{origin_stop['stop_name']}から{destination_stop['stop_name']}まで"
-                    f"「{bus['line_name']}」で{bus['duration_min']}分。"
-                ),
-                from_lat=origin_stop["stop_lat"],
-                from_lng=origin_stop["stop_lon"],
-                to_lat=destination_stop["stop_lat"],
-                to_lng=destination_stop["stop_lon"],
-                path=engine.bus_leg_path(
-                    bus["trip_id"], origin_stop["stop_id"], destination_stop["stop_id"]
-                )
-                or [],
+            leg_steps, next_order, arrival_minutes = _ride_steps(
+                journeys[0], origin_stop, destination_stop, board_minutes,
+                engine, transfer_buffer_minutes, step_order,
             )
-            leg_steps.append(bus_step)
-            next_order += 1
+            leg_steps.insert(0, walk_to_stop)
 
             final_walk_step, cursor.minutes = await _walking_step(
                 destination_stop["stop_name"], destination_stop["stop_lat"], destination_stop["stop_lon"],
                 destination.name, destination.lat, destination.lng,
-                bus_arrival_minutes, next_order,
+                arrival_minutes, next_order,
             )
             leg_steps.append(final_walk_step)
             return leg_steps
 
     return None
+
+
+def _ride_steps(
+    journey: dict,
+    origin_stop: dict[str, str | float],
+    destination_stop: dict[str, str | float],
+    board_minutes: int,
+    engine: GTFSEngine,
+    transfer_buffer_minutes: int,
+    step_order: int,
+) -> tuple[list[ItineraryStep], int, int]:
+    """Turn a journey's rides (and any transfer between them) into steps.
+
+    Returns the steps, the next free step_order, and the arrival time at the
+    final alighting stop. The walk to the first stop and the walk from the
+    last one are the caller's to add.
+    """
+
+    steps: list[ItineraryStep] = []
+    next_order = step_order + 1
+    ready_minutes = board_minutes
+    rides = journey["legs"]
+    transfers = journey["transfers"]
+
+    for index, ride in enumerate(rides):
+        board_stop = (
+            origin_stop if index == 0 else _stop_or_fallback(engine, ride["origin_stop_id"])
+        )
+        alight_stop = (
+            destination_stop
+            if index == len(rides) - 1
+            else _stop_or_fallback(engine, ride["destination_stop_id"])
+        )
+        ride_departure = parse_gtfs_time_to_minutes(ride["departure_time"])
+        ride_arrival = parse_gtfs_time_to_minutes(ride["arrival_time"])
+
+        if ride_departure > ready_minutes:
+            steps.append(
+                _bus_wait_step(
+                    board_stop["stop_name"], board_stop["stop_lat"], board_stop["stop_lon"],
+                    ready_minutes, ride_departure, next_order,
+                )
+            )
+            next_order += 1
+
+        steps.append(
+            ItineraryStep(
+                step_order=next_order,
+                mode="bus",
+                start_time=_format_minutes(ride_departure),
+                end_time=_format_minutes(ride_arrival),
+                title=f"バス（{ride['line_name']}）",
+                details=(
+                    f"{board_stop['stop_name']}から{alight_stop['stop_name']}まで"
+                    f"「{ride['line_name']}」で{ride['duration_min']}分。"
+                ),
+                from_lat=board_stop["stop_lat"],
+                from_lng=board_stop["stop_lon"],
+                to_lat=alight_stop["stop_lat"],
+                to_lng=alight_stop["stop_lon"],
+                path=engine.bus_leg_path(
+                    ride["trip_id"], ride["origin_stop_id"], ride["destination_stop_id"]
+                )
+                or [],
+            )
+        )
+        next_order += 1
+        ready_minutes = ride_arrival
+
+        if index < len(transfers):
+            transfer = transfers[index]
+            # A same-stop change needs no walking step — the wait before the
+            # next bus already covers it.
+            if transfer["from_stop_id"] != transfer["to_stop_id"]:
+                steps.append(_transfer_walk_step(transfer, engine, ready_minutes, next_order))
+                next_order += 1
+            ready_minutes += transfer["transfer_minutes"] + transfer_buffer_minutes
+
+    return steps, next_order, ready_minutes
+
+
+def _stop_or_fallback(engine: GTFSEngine, stop_id: str) -> dict[str, str | float]:
+    info = engine.stop_info(stop_id)
+    return info or {"stop_id": stop_id, "stop_name": stop_id, "stop_lat": 0.0, "stop_lon": 0.0}
+
+
+def _transfer_walk_step(
+    transfer: dict, engine: GTFSEngine, start_minutes: int, step_order: int
+) -> ItineraryStep:
+    """Walk between two nearby stops to change buses.
+
+    Uses the walking time the GTFS layer estimated from straight-line
+    distance rather than calling the routing service: a plan can contain
+    several transfers, and the shared ORS budget is better spent on the
+    walks between spots and stops.
+    """
+
+    from_stop = _stop_or_fallback(engine, transfer["from_stop_id"])
+    to_stop = _stop_or_fallback(engine, transfer["to_stop_id"])
+    minutes = int(transfer["transfer_minutes"])
+    return ItineraryStep(
+        step_order=step_order,
+        mode="walking",
+        start_time=_format_minutes(start_minutes),
+        end_time=_format_minutes(start_minutes + minutes),
+        title="乗り換え徒歩",
+        details=(
+            f"{from_stop['stop_name']}から{to_stop['stop_name']}まで徒歩{minutes}分"
+            f"（約{transfer['distance_m']:.0f}m）で乗り換えます。"
+        ),
+        from_lat=from_stop["stop_lat"],
+        from_lng=from_stop["stop_lon"],
+        to_lat=to_stop["stop_lat"],
+        to_lng=to_stop["stop_lon"],
+    )
 
 
 def _nearest_stop_candidates(spot: Spot, engine: GTFSEngine) -> list[dict[str, str | float]]:

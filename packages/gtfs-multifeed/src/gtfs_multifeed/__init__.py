@@ -1,13 +1,14 @@
 """Query GTFS feeds from multiple transit operators as one network.
 
-See README.md for the problems this solves (ID collisions across feeds,
+See README.md for the problems this solves: ID collisions across feeds,
 unboardable parent stations, the same physical stop registered several
-times) and for its main limitation: bus search finds direct trips only,
-with no transfers.
+times, and journeys that need a change of vehicle at a shared or
+walkable-nearby stop.
 """
 
 from gtfs_multifeed.engine import (
     GTFSEngine,
+    DEFAULT_TRANSFER_RADIUS_M,
     DirectBusOption,
     OPTIONAL_GTFS_FILES,
     REQUIRED_GTFS_FILES,
@@ -32,6 +33,7 @@ from gtfs_multifeed.feeds import (
 
 __all__ = [
     "GTFSEngine",
+    "DEFAULT_TRANSFER_RADIUS_M",
     "DirectBusOption",
     "FeedConfig",
     "OPTIONAL_GTFS_FILES",

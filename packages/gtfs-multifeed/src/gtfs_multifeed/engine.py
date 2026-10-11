@@ -6,9 +6,35 @@ from datetime import date, datetime
 from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 EARTH_RADIUS_M = 6_371_000
+
+# --- Walkable transfers between nearby stops -------------------------------
+# GTFS feeds frequently omit transfers.txt, so transfer points are inferred
+# from geography instead. These defaults are tuned for regional bus networks.
+
+# Two boardable stops this close are treated as connected on foot. Much
+# beyond this and a "transfer" becomes a walk the rider would not expect.
+DEFAULT_TRANSFER_RADIUS_M = 300
+
+# Operators routinely register the same physical stop once per direction, a
+# few metres apart. Pairs this close are one place, not a walk.
+SAME_PLACE_RADIUS_M = 30
+
+TRANSFER_WALK_SPEED_M_PER_MIN = 80.0
+# Straight-line distance understates street distance; inflate it rather than
+# calling out to a routing service for thousands of pairs.
+TRANSFER_WALK_DETOUR_FACTOR = 1.3
+# A bus will not wait, so even stepping across the road costs something.
+MIN_TRANSFER_MINUTES = 2
+
+# How many departures from the origin stop to follow when looking for a
+# connection. Bounds the search without meaningfully narrowing it: later
+# departures can only reach a transfer stop later, and arriving earlier at
+# a transfer stop weakly dominates (see search_journeys).
+MAX_FIRST_LEG_DEPARTURES = 10
 
 # Columns holding GTFS IDs, per table. Different operators' feeds often
 # reuse the same short IDs (e.g. stop_id "1_01") for unrelated stops, so
@@ -217,6 +243,345 @@ class GTFSEngine:
             }
             for row in stops.itertuples(index=False)
         ]
+
+    def search_journeys(
+        self,
+        origin_stop_id: str,
+        dest_stop_id: str,
+        departure_time: str,
+        departure_date: str | date | None = None,
+        max_transfers: int = 1,
+        max_distance_m: float = DEFAULT_TRANSFER_RADIUS_M,
+        limit: int = 3,
+    ) -> list[dict]:
+        """Search journeys between two stops, optionally with one transfer.
+
+        Unlike search_next_bus(), which only finds trips where a single
+        vehicle serves both stops, this will change vehicles at a shared or
+        walkable-nearby stop (see transfer_edges()).
+
+        Returns journeys sorted by arrival time, each shaped as::
+
+            {"legs": [<ride>, ...],          # same shape as search_next_bus
+             "transfers": [<transfer>, ...], # len(legs) - 1 entries
+             "departure_time", "arrival_time", "duration_min", "num_transfers"}
+
+        max_transfers is currently capped at 1. Within that, the result is
+        the genuine earliest arrival: only the earliest arrival at each
+        candidate transfer stop is pursued, which is sound because arriving
+        earlier at a stop can only widen the set of onward departures that
+        are still catchable.
+        """
+
+        if origin_stop_id == dest_stop_id:
+            raise ValueError("origin_stop_id and dest_stop_id must be different")
+        if max_transfers > 1:
+            raise ValueError("max_transfers above 1 is not supported yet")
+
+        journeys = [
+            self._journey(legs=[ride], transfers=[])
+            for ride in self.search_next_bus(
+                origin_stop_id, dest_stop_id, departure_time, departure_date
+            )
+        ]
+        if max_transfers >= 1:
+            journeys.extend(
+                self._one_transfer_journeys(
+                    origin_stop_id,
+                    dest_stop_id,
+                    parse_gtfs_time_to_minutes(departure_time),
+                    departure_date,
+                    max_distance_m,
+                )
+            )
+
+        journeys.sort(
+            key=lambda j: (
+                parse_gtfs_time_to_minutes(j["arrival_time"]),
+                j["num_transfers"],
+                -parse_gtfs_time_to_minutes(j["departure_time"]),
+            )
+        )
+        return journeys[:limit]
+
+    def _one_transfer_journeys(
+        self,
+        origin_stop_id: str,
+        dest_stop_id: str,
+        departure_min: int,
+        departure_date: str | date | None,
+        max_distance_m: float,
+    ) -> list[dict]:
+        stop_times = self.stop_times
+        if departure_date is not None:
+            active = self.active_service_ids(departure_date)
+            runs_today = set(self.trips.loc[self.trips["service_id"].isin(active), "trip_id"])
+            stop_times = stop_times[stop_times["trip_id"].isin(runs_today)]
+
+        boarding = stop_times[
+            (stop_times["stop_id"] == origin_stop_id)
+            & (stop_times["departure_minutes"] >= departure_min)
+        ].nsmallest(MAX_FIRST_LEG_DEPARTURES, "departure_minutes")
+        if boarding.empty:
+            return []
+
+        # Where one ride from the origin can put us, earliest arrival first.
+        first = boarding[["trip_id", "stop_sequence", "departure_time", "departure_minutes"]].rename(
+            columns={
+                "stop_sequence": "board_seq",
+                "departure_time": "leg1_departure_time",
+                "departure_minutes": "leg1_departure_minutes",
+            }
+        )
+        first = first.merge(stop_times, on="trip_id")
+        first = first[first["stop_sequence"] > first["board_seq"]]
+        first = first[first["stop_id"] != origin_stop_id]
+        if first.empty:
+            return []
+        first = first.sort_values("arrival_minutes").drop_duplicates("stop_id", keep="first")
+        first = first.rename(
+            columns={
+                "stop_id": "alight_stop_id",
+                "arrival_time": "leg1_arrival_time",
+                "arrival_minutes": "leg1_arrival_minutes",
+                "trip_id": "leg1_trip_id",
+            }
+        )[
+            [
+                "leg1_trip_id",
+                "leg1_departure_time",
+                "alight_stop_id",
+                "leg1_arrival_time",
+                "leg1_arrival_minutes",
+            ]
+        ]
+
+        # Transfer: stay put, or walk to a nearby stop.
+        stay = first.assign(
+            board_stop_id=first["alight_stop_id"],
+            transfer_distance_m=0.0,
+            transfer_minutes=MIN_TRANSFER_MINUTES,
+        )
+        edges = self.transfer_edges(max_distance_m)
+        walk = first.merge(edges, left_on="alight_stop_id", right_on="from_stop_id").rename(
+            columns={"to_stop_id": "board_stop_id", "distance_m": "transfer_distance_m"}
+        )
+        options = pd.concat([stay, walk[stay.columns]], ignore_index=True)
+        options["ready_minutes"] = options["leg1_arrival_minutes"] + options["transfer_minutes"]
+        options = options[options["board_stop_id"] != origin_stop_id]
+        options = options.sort_values("ready_minutes").drop_duplicates(
+            "board_stop_id", keep="first"
+        )
+
+        # Second ride: anything reaching the destination from those stops.
+        arriving = stop_times[stop_times["stop_id"] == dest_stop_id][
+            ["trip_id", "stop_sequence", "arrival_time", "arrival_minutes"]
+        ].rename(
+            columns={
+                "stop_sequence": "dest_seq",
+                "arrival_time": "leg2_arrival_time",
+                "arrival_minutes": "leg2_arrival_minutes",
+            }
+        )
+        if arriving.empty:
+            return []
+        second = stop_times.merge(arriving, on="trip_id")
+        second = second[second["stop_sequence"] < second["dest_seq"]]
+        second = second.merge(options, left_on="stop_id", right_on="board_stop_id")
+        second = second[second["departure_minutes"] >= second["ready_minutes"]]
+        # Riding the same vehicle through is a direct trip, not a transfer.
+        second = second[second["trip_id"] != second["leg1_trip_id"]]
+        if second.empty:
+            return []
+
+        second = second.sort_values(["leg2_arrival_minutes", "departure_minutes"])
+        second = second.drop_duplicates("board_stop_id", keep="first").nsmallest(
+            MAX_FIRST_LEG_DEPARTURES, "leg2_arrival_minutes"
+        )
+
+        journeys = []
+        for row in second.itertuples(index=False):
+            leg1 = self._ride(
+                row.leg1_trip_id,
+                origin_stop_id,
+                row.alight_stop_id,
+                row.leg1_departure_time,
+                row.leg1_arrival_time,
+            )
+            leg2 = self._ride(
+                row.trip_id,
+                row.board_stop_id,
+                dest_stop_id,
+                row.departure_time,
+                row.leg2_arrival_time,
+            )
+            transfer = {
+                "from_stop_id": str(row.alight_stop_id),
+                "from_stop_name": self._stop_name(row.alight_stop_id),
+                "to_stop_id": str(row.board_stop_id),
+                "to_stop_name": self._stop_name(row.board_stop_id),
+                "distance_m": round(float(row.transfer_distance_m), 1),
+                "transfer_minutes": int(row.transfer_minutes),
+            }
+            journeys.append(self._journey(legs=[leg1, leg2], transfers=[transfer]))
+        return journeys
+
+    @staticmethod
+    def _journey(legs: list[dict], transfers: list[dict]) -> dict:
+        departure_time = str(legs[0]["departure_time"])
+        arrival_time = str(legs[-1]["arrival_time"])
+        return {
+            "legs": legs,
+            "transfers": transfers,
+            "departure_time": departure_time,
+            "arrival_time": arrival_time,
+            "duration_min": parse_gtfs_time_to_minutes(arrival_time)
+            - parse_gtfs_time_to_minutes(departure_time),
+            "num_transfers": len(transfers),
+        }
+
+    def stop_info(self, stop_id: str) -> dict[str, str | float] | None:
+        """Return one stop's name and coordinates, or None if it is unknown."""
+
+        match = self.stops[self.stops["stop_id"] == stop_id]
+        if match.empty:
+            return None
+        row = match.iloc[0]
+        return {
+            "stop_id": str(row["stop_id"]),
+            "stop_name": str(row["stop_name"]),
+            "stop_lat": float(row["stop_lat"]),
+            "stop_lon": float(row["stop_lon"]),
+        }
+
+    def _stop_name(self, stop_id: str) -> str:
+        info = self.stop_info(stop_id)
+        return info["stop_name"] if info else str(stop_id)
+
+    def _ride(
+        self,
+        trip_id: str,
+        origin_stop_id: str,
+        dest_stop_id: str,
+        departure_time: str,
+        arrival_time: str,
+    ) -> dict:
+        """Build one ride in the same shape search_next_bus() returns."""
+
+        trip = self.trips[self.trips["trip_id"] == trip_id].iloc[0]
+        route = self.routes[self.routes["route_id"] == trip["route_id"]]
+        route_short = route.iloc[0]["route_short_name"] if not route.empty else ""
+        route_long = route.iloc[0]["route_long_name"] if not route.empty else ""
+
+        return DirectBusOption(
+            route_id=str(trip["route_id"]),
+            route_short_name=_nullable_str(route_short),
+            route_long_name=_nullable_str(route_long),
+            line_name=_line_name(route_short, route_long, trip["route_id"]),
+            trip_id=str(trip_id),
+            trip_headsign=_nullable_str(trip.get("trip_headsign", "")),
+            origin_stop_id=str(origin_stop_id),
+            destination_stop_id=str(dest_stop_id),
+            departure_time=str(departure_time),
+            arrival_time=str(arrival_time),
+            duration_min=parse_gtfs_time_to_minutes(str(arrival_time))
+            - parse_gtfs_time_to_minutes(str(departure_time)),
+            shape_id=_nullable_str(trip.get("shape_id", "")),
+        ).to_dict()
+
+    def transfer_edges(self, max_distance_m: float = DEFAULT_TRANSFER_RADIUS_M) -> pd.DataFrame:
+        """Return walkable stop-to-stop transfers, as the basis for multi-leg search.
+
+        GTFS feeds frequently omit transfers.txt (none of the regional feeds
+        this was built against ship one), so transfer points are inferred
+        from geography: any two boardable stops within max_distance_m are
+        treated as connected on foot.
+
+        One row per *ordered* pair, so both directions are present:
+        from_stop_id, to_stop_id, distance_m, transfer_minutes.
+
+        transfer_minutes inflates the straight-line walk by
+        TRANSFER_WALK_DETOUR_FACTOR to stand in for street distance, floored
+        at MIN_TRANSFER_MINUTES; pairs within SAME_PLACE_RADIUS_M are treated
+        as one physical place and take the floor directly.
+
+        Results are cached per radius — the whole computation is a few
+        hundred milliseconds even for thousands of stops, but callers may
+        ask for it inside a search loop.
+        """
+
+        cache = getattr(self, "_transfer_cache", None)
+        if cache is None:
+            # from_feeds() builds instances via __new__, so this cannot be
+            # set up in __init__ alone.
+            cache = self._transfer_cache = {}
+        if max_distance_m in cache:
+            return cache[max_distance_m]
+
+        columns = ["from_stop_id", "to_stop_id", "distance_m", "transfer_minutes"]
+        if self.stops.empty:
+            cache[max_distance_m] = pd.DataFrame(columns=columns)
+            return cache[max_distance_m]
+
+        stop_ids = self.stops["stop_id"].to_numpy()
+        lat_r = np.radians(self.stops["stop_lat"].to_numpy(dtype=float))
+        lon_r = np.radians(self.stops["stop_lon"].to_numpy(dtype=float))
+        count = len(stop_ids)
+
+        # Coarse filter over every pair, in blocks to bound peak memory. The
+        # equirectangular approximation is well under 1% off at the few-
+        # hundred-metre scale being filtered at, and surviving pairs get an
+        # exact haversine distance below.
+        from_parts: list[np.ndarray] = []
+        to_parts: list[np.ndarray] = []
+        block = 512
+        for start in range(0, count, block):
+            end = min(start + block, count)
+            d_lat = lat_r[start:end, None] - lat_r[None, :]
+            d_lon = lon_r[start:end, None] - lon_r[None, :]
+            mean_lat = (lat_r[start:end, None] + lat_r[None, :]) / 2
+            approx = EARTH_RADIUS_M * np.sqrt(d_lat**2 + (np.cos(mean_lat) * d_lon) ** 2)
+
+            local_rows, cols = np.nonzero(approx <= max_distance_m)
+            rows = local_rows + start
+            keep = rows != cols
+            from_parts.append(rows[keep])
+            to_parts.append(cols[keep])
+
+        from_idx = np.concatenate(from_parts) if from_parts else np.empty(0, dtype=int)
+        to_idx = np.concatenate(to_parts) if to_parts else np.empty(0, dtype=int)
+
+        d_lat = lat_r[to_idx] - lat_r[from_idx]
+        d_lon = lon_r[to_idx] - lon_r[from_idx]
+        haversine = (
+            np.sin(d_lat / 2) ** 2
+            + np.cos(lat_r[from_idx]) * np.cos(lat_r[to_idx]) * np.sin(d_lon / 2) ** 2
+        )
+        distance_m = 2 * EARTH_RADIUS_M * np.arcsin(np.sqrt(haversine))
+
+        # The approximation can admit pairs a hair over the threshold.
+        inside = distance_m <= max_distance_m
+        from_idx, to_idx, distance_m = from_idx[inside], to_idx[inside], distance_m[inside]
+
+        walk_minutes = np.ceil(
+            distance_m * TRANSFER_WALK_DETOUR_FACTOR / TRANSFER_WALK_SPEED_M_PER_MIN
+        )
+        transfer_minutes = np.where(
+            distance_m <= SAME_PLACE_RADIUS_M,
+            MIN_TRANSFER_MINUTES,
+            np.maximum(walk_minutes, MIN_TRANSFER_MINUTES),
+        )
+
+        edges = pd.DataFrame(
+            {
+                "from_stop_id": stop_ids[from_idx],
+                "to_stop_id": stop_ids[to_idx],
+                "distance_m": np.round(distance_m, 1),
+                "transfer_minutes": transfer_minutes.astype(int),
+            }
+        )
+        cache[max_distance_m] = edges
+        return edges
 
     def route_shapes(self) -> list[dict[str, str | list[list[float]] | None]]:
         """Return one polyline per shape_id, with the line_name of a route that uses it."""

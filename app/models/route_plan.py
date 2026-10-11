@@ -75,6 +75,19 @@ class RoutePlanRequest(BaseModel):
         description='Travel date, "YYYY-MM-DD", used for GTFS calendar filtering.',
         examples=["2026-08-22"],
     )
+    max_transfers: int = Field(
+        1,
+        ge=0,
+        le=1,
+        description=(
+            "How many times a single leg between two spots may change "
+            "buses. 1 (the default) allows one change, at a shared stop or "
+            "a short walk away; 0 restricts the search to trips where one "
+            "vehicle serves both stops, which in a rural network leaves "
+            "most spot pairs unreachable."
+        ),
+        examples=[1],
+    )
     transfer_buffer_minutes: int = Field(
         0,
         ge=0,

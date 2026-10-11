@@ -1,0 +1,3 @@
+route_id,agency_id,route_short_name,route_long_name,route_type
+route_1,ag,Line 1,A to B Line,3
+route_2,ag,Line 2,B to C Line,3

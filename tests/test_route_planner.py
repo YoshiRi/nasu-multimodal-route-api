@@ -553,3 +553,73 @@ async def test_build_route_plan_applies_transfer_buffer_minutes(
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+TRANSFER_NET_DIR = Path(__file__).parent / "fixtures" / "transfer_net"
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_builds_an_itinerary_that_changes_buses(
+    tmp_path: Path,
+) -> None:
+    # A -> C needs one change at the B Junction pair; no single vehicle
+    # serves both. Spots sit right on top of their stops so the walking
+    # legs stay trivial and the bus/transfer structure is what's asserted.
+    engine = GTFSEngine(TRANSFER_NET_DIR)
+    spots = _spot_repository_at(
+        tmp_path,
+        [
+            {"spot_id": "a", "name": "A", "lat": 35.985, "lng": 140.0},
+            {"spot_id": "c", "name": "C", "lat": 36.035, "lng": 140.0},
+        ],
+    )
+    request = RoutePlanRequest(
+        base_location_id="a",
+        target_spot_ids=[{"spot_id": "c"}],
+        departure_time="08:00",
+        departure_date="2026-03-02",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success", response.ai_hint
+    steps = response.plans[0].steps
+    bus_steps = [step for step in steps if step.mode == "bus"]
+    assert [step.title for step in bus_steps] == ["バス（Line 1）", "バス（Line 2）"]
+
+    # The walk between the two B stops is its own step, not folded away.
+    transfer_walk = next(step for step in steps if step.title == "乗り換え徒歩")
+    assert "B Junction" in transfer_walk.details
+
+    # Second bus departs after the first arrives plus the transfer walk.
+    assert bus_steps[0].end_time == "09:20"
+    assert transfer_walk.start_time == "09:20"
+    assert bus_steps[1].start_time == "09:30"
+    assert steps[-1].end_time >= "09:50"
+    assert [step.step_order for step in steps] == list(range(1, len(steps) + 1))
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_max_transfers_zero_rejects_the_connection(
+    tmp_path: Path,
+) -> None:
+    engine = GTFSEngine(TRANSFER_NET_DIR)
+    spots = _spot_repository_at(
+        tmp_path,
+        [
+            {"spot_id": "a", "name": "A", "lat": 35.985, "lng": 140.0},
+            {"spot_id": "c", "name": "C", "lat": 36.035, "lng": 140.0},
+        ],
+    )
+    request = RoutePlanRequest(
+        base_location_id="a",
+        target_spot_ids=[{"spot_id": "c"}],
+        departure_time="08:00",
+        departure_date="2026-03-02",
+        max_transfers=0,
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "error"
+    assert response.plans == []

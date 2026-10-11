@@ -1,0 +1,6 @@
+stop_id,stop_name,stop_lat,stop_lon
+stop_a,A Terminal,35.985000,140.000000
+stop_b,B Junction,36.010000,140.000000
+stop_b2,B Junction West,36.010000,139.999610
+stop_c,C Village,36.035000,140.000000
+stop_far,Far Stop,36.200000,140.000000
