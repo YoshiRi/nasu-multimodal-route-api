@@ -623,3 +623,101 @@ async def test_build_route_plan_max_transfers_zero_rejects_the_connection(
 
     assert response.status == "error"
     assert response.plans == []
+
+
+ORDER_NET_DIR = Path(__file__).parent / "fixtures" / "order_net"
+ORDER_NET_SPOTS = [
+    {"spot_id": "hub", "name": "Hub", "lat": 36.0, "lng": 140.0},
+    {"spot_id": "p", "name": "P", "lat": 36.1, "lng": 140.0},
+    {"spot_id": "q", "name": "Q", "lat": 36.2, "lng": 140.0},
+]
+
+
+def _order_net_request(tmp_path: Path, target_ids: list[str], **kwargs) -> RoutePlanRequest:
+    return RoutePlanRequest(
+        base_location_id="hub",
+        target_spot_ids=[{"spot_id": spot_id, "dwell_minutes": 60} for spot_id in target_ids],
+        departure_time="08:00",
+        departure_date="2026-03-02",
+        **kwargs,
+    )
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_reorders_targets_to_find_a_workable_trip(
+    tmp_path: Path,
+) -> None:
+    # Buses only run Hub->P->Q->Hub. Asking for Q first strands the trip:
+    # the only Hub->Q service is late, and nothing runs Q->P at all.
+    engine = GTFSEngine(ORDER_NET_DIR)
+    spots = _spot_repository_at(tmp_path, ORDER_NET_SPOTS)
+
+    as_given = await build_route_plan(
+        _order_net_request(tmp_path, ["q", "p", "hub"]), engine, spots
+    )
+    assert as_given.status == "error"
+
+    reordered = await build_route_plan(
+        _order_net_request(tmp_path, ["q", "p", "hub"], optimize_visit_order=True),
+        engine,
+        spots,
+    )
+
+    assert reordered.status == "success", reordered.ai_hint
+    assert "Hub発 P → Q → Hub" in reordered.plans[0].title
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_keeps_the_destination_last_when_reordering(
+    tmp_path: Path,
+) -> None:
+    # The final target is where the trip ends, not a stop to shuffle: Hub
+    # has to stay last even though visiting it earlier would be quicker.
+    engine = GTFSEngine(ORDER_NET_DIR)
+    spots = _spot_repository_at(tmp_path, ORDER_NET_SPOTS)
+
+    response = await build_route_plan(
+        _order_net_request(tmp_path, ["q", "p", "hub"], optimize_visit_order=True),
+        engine,
+        spots,
+    )
+
+    assert response.plans[0].title.endswith("Hub 行程プラン")
+
+
+@pytest.mark.anyio
+async def test_build_route_plan_leaves_order_alone_by_default(tmp_path: Path) -> None:
+    engine = GTFSEngine(ORDER_NET_DIR)
+    spots = _spot_repository_at(tmp_path, ORDER_NET_SPOTS)
+
+    response = await build_route_plan(
+        _order_net_request(tmp_path, ["p", "q", "hub"]), engine, spots
+    )
+
+    # The given order already works, so it is used untouched.
+    assert response.status == "success", response.ai_hint
+    assert "Hub発 P → Q → Hub" in response.plans[0].title
+
+
+@pytest.mark.anyio
+async def test_reordering_will_not_break_a_reservation_time(tmp_path: Path) -> None:
+    # Q can only be reached by 10:50 via P first; a 10:00 deadline there is
+    # unmeetable in any order, and reordering must not pretend otherwise.
+    engine = GTFSEngine(ORDER_NET_DIR)
+    spots = _spot_repository_at(tmp_path, ORDER_NET_SPOTS)
+    request = RoutePlanRequest(
+        base_location_id="hub",
+        target_spot_ids=[
+            {"spot_id": "p", "dwell_minutes": 60},
+            {"spot_id": "q", "dwell_minutes": 60, "required_arrival_time": "10:00"},
+            {"spot_id": "hub"},
+        ],
+        departure_time="08:00",
+        departure_date="2026-03-02",
+        optimize_visit_order=True,
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "error"
+    assert response.plans == []

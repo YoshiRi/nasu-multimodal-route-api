@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from math import ceil, inf
 
 from gtfs_multifeed import GTFSEngine, haversine_distance_m, parse_gtfs_time_to_minutes
 
@@ -38,6 +39,24 @@ NEAREST_STOP_RADIUS_M = 1500
 # (ORS_MAX_REQUESTS_PER_MINUTE in ors_client.py).
 MAX_STOP_CANDIDATES = 8
 
+# Picking a visit order evaluates many more legs than building one plan
+# does, so it searches a narrower set of stops. A pair wrongly judged
+# unreachable here only yields a worse order, never a worse plan — the
+# chosen order is still built with the full MAX_STOP_CANDIDATES.
+ORDERING_STOP_CANDIDATES = 3
+
+# Swap passes over the greedy order. Each pass is O(n^2) order evaluations,
+# but they reuse a leg cache and never touch the routing service, so a
+# couple of passes stay cheap. Two is enough to clean up the obvious
+# greedy mistakes without the runtime creeping up.
+MAX_ORDER_IMPROVEMENT_PASSES = 2
+
+# Walking estimates used while choosing a visit order, in place of calling
+# the routing service: ordering tries far too many legs to spend the shared
+# ORS budget on, and only the final itinerary needs real walking routes.
+WALKING_SPEED_M_PER_MIN = 80.0
+WALKING_DETOUR_FACTOR = 1.3
+
 # Above this straight-line distance, a spot-to-spot "walking" leg (used
 # when a spot has no GTFS stop within NEAREST_STOP_RADIUS_M) switches to
 # taxi instead — walking the whole distance would otherwise be unrealistic
@@ -65,6 +84,9 @@ async def build_route_plan(
         remaining = [(spots.get(target.spot_id), target) for target in request.target_spot_ids]
     except SpotNotFoundError as exc:
         raise RoutePlanInputError(f"Unknown spot_id: {exc}") from exc
+
+    if request.optimize_visit_order:
+        remaining = _optimize_visit_order(base, remaining, request, engine)
 
     dropped_names: list[str] = []
 
@@ -372,9 +394,238 @@ def _transfer_walk_step(
     )
 
 
-def _nearest_stop_candidates(spot: Spot, engine: GTFSEngine) -> list[dict[str, str | float]]:
+def _nearest_stop_candidates(
+    spot: Spot, engine: GTFSEngine, limit: int = MAX_STOP_CANDIDATES
+) -> list[dict[str, str | float]]:
     nearby = engine.nearby_stops(lat=spot.lat, lng=spot.lng, radius_m=NEAREST_STOP_RADIUS_M)
-    return nearby[:MAX_STOP_CANDIDATES]
+    return nearby[:limit]
+
+
+def _optimize_visit_order(
+    base: Spot,
+    remaining: list[tuple[Spot, object]],
+    request: RoutePlanRequest,
+    engine: GTFSEngine,
+) -> list[tuple[Spot, object]]:
+    """Reorder the intermediate targets to finish the trip sooner.
+
+    Two passes. First a greedy one: from wherever the traveller is, and
+    whenever they are free, go to whichever remaining spot can be reached
+    earliest. That alone is myopic — it will happily strand a spot next
+    door to an early stop until the end of the day — so a second pass
+    tries swapping pairs and keeps whatever lands at the destination
+    sooner.
+
+    The final target is left where it is throughout: it is the trip's
+    destination (see _compute_plan), not a stop along the way. Anything
+    unreachable keeps its given order at the end, to be dropped or to fail
+    the plan by the usual rules rather than silently reshuffled.
+
+    All of this runs on estimated walking times (see
+    _estimate_leg_arrival), so it costs no routing-service calls no matter
+    how many orders it tries.
+    """
+
+    # One intermediate plus a pinned destination has only one arrangement.
+    if len(remaining) < 3:
+        return remaining
+
+    *middle, last = remaining
+    cache: dict[tuple[str, str, int], int | None] = {}
+    order = _greedy_order(base, middle, request, engine, cache)
+    order = _improve_order(base, order, last, request, engine, cache)
+    return [*order, last]
+
+
+def _greedy_order(
+    base: Spot,
+    middle: list[tuple[Spot, object]],
+    request: RoutePlanRequest,
+    engine: GTFSEngine,
+    cache: dict,
+) -> list[tuple[Spot, object]]:
+    cursor = parse_gtfs_time_to_minutes(request.departure_time)
+    position = base
+    ordered: list[tuple[Spot, object]] = []
+    pending = list(middle)
+
+    while pending:
+        best: tuple[int, int] | None = None
+        for index, (spot, target) in enumerate(pending):
+            arrival = _arrival_at(position, spot, target, cursor, request, engine, cache)
+            if arrival is not None and (best is None or arrival < best[0]):
+                best = (arrival, index)
+
+        if best is None:
+            ordered.extend(pending)
+            break
+
+        arrival, index = best
+        spot, target = pending.pop(index)
+        ordered.append((spot, target))
+        cursor = arrival + _dwell_of(target)
+        position = spot
+
+    return ordered
+
+
+def _improve_order(
+    base: Spot,
+    order: list[tuple[Spot, object]],
+    last: tuple[Spot, object],
+    request: RoutePlanRequest,
+    engine: GTFSEngine,
+    cache: dict,
+) -> list[tuple[Spot, object]]:
+    """Swap pairs while that gets the traveller to the destination sooner.
+
+    An order that cannot be completed at all scores as infinitely late, so
+    this also serves to find a workable order when the greedy pass left one
+    that isn't — which happens whenever the last leg home runs out of buses.
+    """
+
+    best_order = list(order)
+    best_finish = _score(_finish_time(base, best_order, last, request, engine, cache))
+
+    for _ in range(MAX_ORDER_IMPROVEMENT_PASSES):
+        improved = False
+        for i in range(len(best_order)):
+            for j in range(i + 1, len(best_order)):
+                candidate = list(best_order)
+                candidate[i], candidate[j] = candidate[j], candidate[i]
+                finish = _score(_finish_time(base, candidate, last, request, engine, cache))
+                if finish < best_finish:
+                    best_order, best_finish, improved = candidate, finish, True
+        if not improved:
+            break
+
+    return best_order
+
+
+def _score(finish_time: int | None) -> float:
+    """An order that never finishes is worse than any order that does."""
+
+    return inf if finish_time is None else float(finish_time)
+
+
+def _finish_time(
+    base: Spot,
+    order: list[tuple[Spot, object]],
+    last: tuple[Spot, object],
+    request: RoutePlanRequest,
+    engine: GTFSEngine,
+    cache: dict,
+) -> int | None:
+    """When this order would reach the destination, or None if it can't."""
+
+    cursor = parse_gtfs_time_to_minutes(request.departure_time)
+    position = base
+
+    for spot, target in [*order, last]:
+        arrival = _arrival_at(position, spot, target, cursor, request, engine, cache)
+        if arrival is None:
+            return None
+        cursor = arrival + _dwell_of(target)
+        position = spot
+
+    # cursor picked up the destination's dwell, which never happens.
+    return cursor - _dwell_of(last[1])
+
+
+def _arrival_at(
+    origin: Spot,
+    destination: Spot,
+    target: object,
+    depart_minutes: int,
+    request: RoutePlanRequest,
+    engine: GTFSEngine,
+    cache: dict,
+) -> int | None:
+    """Arrival at destination, honoring its reservation time, or None."""
+
+    key = (origin.spot_id, destination.spot_id, depart_minutes)
+    if key not in cache:
+        cache[key] = _estimate_leg_arrival(origin, destination, depart_minutes, engine, request)
+    arrival = cache[key]
+    if arrival is None:
+        return None
+
+    if target.required_arrival_time is not None:
+        required = parse_gtfs_time_to_minutes(target.required_arrival_time)
+        if arrival > required:
+            return None
+        return required
+    return arrival
+
+
+def _dwell_of(target: object) -> int:
+    return target.dwell_minutes if target.dwell_minutes is not None else DEFAULT_DWELL_MINUTES
+
+
+def _estimate_leg_arrival(
+    origin: Spot,
+    destination: Spot,
+    depart_minutes: int,
+    engine: GTFSEngine,
+    request: RoutePlanRequest,
+) -> int | None:
+    """Estimate when a leg would land, without calling the routing service.
+
+    Mirrors how _build_leg picks stops — first workable pair wins — so the
+    order chosen here reflects the itinerary that will actually be built.
+    """
+
+    origin_candidates = _nearest_stop_candidates(origin, engine, ORDERING_STOP_CANDIDATES)
+    destination_candidates = _nearest_stop_candidates(
+        destination, engine, ORDERING_STOP_CANDIDATES
+    )
+    direct_distance_m = haversine_distance_m(
+        origin.lat, origin.lng, destination.lat, destination.lng
+    )
+
+    if (
+        not origin_candidates
+        or not destination_candidates
+        or origin_candidates[0]["stop_id"] == destination_candidates[0]["stop_id"]
+    ):
+        return depart_minutes + _estimated_walk_minutes(direct_distance_m)
+
+    for origin_stop in origin_candidates:
+        board_minutes = depart_minutes + _estimated_walk_minutes(
+            haversine_distance_m(
+                origin.lat, origin.lng, origin_stop["stop_lat"], origin_stop["stop_lon"]
+            )
+        )
+        for destination_stop in destination_candidates:
+            if origin_stop["stop_id"] == destination_stop["stop_id"]:
+                continue
+            journeys = engine.search_journeys(
+                origin_stop_id=origin_stop["stop_id"],
+                dest_stop_id=destination_stop["stop_id"],
+                departure_time=_format_minutes(
+                    board_minutes + request.transfer_buffer_minutes
+                ),
+                departure_date=request.departure_date,
+                max_transfers=request.max_transfers,
+            )
+            if not journeys:
+                continue
+            return parse_gtfs_time_to_minutes(journeys[0]["arrival_time"]) + (
+                _estimated_walk_minutes(
+                    haversine_distance_m(
+                        destination_stop["stop_lat"],
+                        destination_stop["stop_lon"],
+                        destination.lat,
+                        destination.lng,
+                    )
+                )
+            )
+
+    return None
+
+
+def _estimated_walk_minutes(distance_m: float) -> int:
+    return max(1, ceil(distance_m * WALKING_DETOUR_FACTOR / WALKING_SPEED_M_PER_MIN))
 
 
 async def _direct_step(

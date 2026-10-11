@@ -75,6 +75,19 @@ class RoutePlanRequest(BaseModel):
         description='Travel date, "YYYY-MM-DD", used for GTFS calendar filtering.',
         examples=["2026-08-22"],
     )
+    optimize_visit_order: bool = Field(
+        False,
+        description=(
+            "If true, reorder the intermediate targets to get around "
+            "sooner, instead of visiting them in the given order. The "
+            "LAST entry stays put — it is the trip's destination, not a "
+            "stop along the way — so put the intended endpoint last. The "
+            "search is a greedy 'go wherever is reachable earliest' pass, "
+            "not a guaranteed optimum, and it estimates walking times "
+            "rather than routing them, so the resulting plan's exact "
+            "times may differ slightly from what ordering assumed."
+        ),
+    )
     max_transfers: int = Field(
         1,
         ge=0,

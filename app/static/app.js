@@ -203,6 +203,7 @@ const routeModeToggle = document.getElementById("route-mode-toggle");
 const routeSelectionListEl = document.getElementById("route-selection-list");
 const routeSearchButton = document.getElementById("route-search-submit");
 const routeRoundTripCheckbox = document.getElementById("route-round-trip");
+const routeOptimizeCheckbox = document.getElementById("route-optimize");
 
 // Name-based add: the primary way to build a route — type a spot name,
 // click a match to append it (badges in the list below show its role).
@@ -245,6 +246,9 @@ function renderRouteSelection() {
       badge = "起点";
     } else if (isLastTarget && !routeRoundTripCheckbox.checked) {
       badge = "終点";
+    } else if (routeOptimizeCheckbox.checked) {
+      // The order is about to be decided for them, so a number here lies.
+      badge = "経由";
     } else {
       badge = `${index}`;
     }
@@ -326,9 +330,11 @@ function buildSpotSettingsForm(spot) {
   return form;
 }
 
-routeRoundTripCheckbox.addEventListener("change", () => {
-  renderRouteSelection();
-});
+for (const checkbox of [routeRoundTripCheckbox, routeOptimizeCheckbox]) {
+  checkbox.addEventListener("change", () => {
+    renderRouteSelection();
+  });
+}
 
 routeModeToggle.addEventListener("click", () => {
   routeMode = !routeMode;
@@ -374,6 +380,7 @@ routeSearchButton.addEventListener("click", async () => {
         departure_time: departureTime,
         departure_date: departureDate,
         transfer_buffer_minutes: transferBufferMinutes,
+        optimize_visit_order: routeOptimizeCheckbox.checked,
       }),
     });
     if (!response.ok) {

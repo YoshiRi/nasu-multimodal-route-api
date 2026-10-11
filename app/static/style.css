@@ -75,7 +75,8 @@ html, body {
   margin-top: 6px;
 }
 
-#route-round-trip-label {
+#route-round-trip-label,
+#route-optimize-label {
   display: flex;
   align-items: center;
   gap: 6px;

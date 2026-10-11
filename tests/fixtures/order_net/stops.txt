@@ -1,0 +1,4 @@
+stop_id,stop_name,stop_lat,stop_lon
+stop_h,Hub,36.000000,140.000000
+stop_p,P Stop,36.100000,140.000000
+stop_q,Q Stop,36.200000,140.000000

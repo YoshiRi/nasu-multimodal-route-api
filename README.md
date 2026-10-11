@@ -26,7 +26,10 @@ A working proof of concept, honest about what it doesn't do:
 - **Taxi fares are an unverified reference formula**, not real Nasu tariffs.
   Substitute your own via `build_route_plan(..., fare_estimator=...)` — see
   `app/services/taxi_fare.py`.
-- Visit order is taken as given; there is no route optimization.
+- **Visit order optimization is a heuristic, and off by default.** Set
+  `optimize_visit_order: true` to have the intermediate stops reordered;
+  it is a greedy pass plus a couple of swap rounds, not a guaranteed
+  optimum, and it estimates walking times rather than routing them.
 - The spot master is 30 hand-collected places, not an exhaustive dataset.
 
 ## Setup
@@ -123,8 +126,10 @@ Each target accepts:
 - `required` — if `false`, the spot is dropped and the rest replanned when it
   can't be fitted in, instead of failing the whole request.
 
-Request-level `transfer_buffer_minutes` adds slack before every bus boarding,
-and `max_transfers` (default 1) controls whether a leg may change buses.
+Request-level options: `transfer_buffer_minutes` adds slack before every bus
+boarding, `max_transfers` (default 1) controls whether a leg may change buses,
+and `optimize_visit_order` (default false) reorders the intermediate targets to
+finish sooner — the last entry stays put, since it is the destination.
 
 Spots come from `data/spots/nasu_spots.json` (`spot_id`/`name`/`lat`/`lng`;
 override with `SPOTS_FILE`) — not GTFS `stop_id`s. The nearest usable GTFS
@@ -148,8 +153,11 @@ click markers on the map instead. The last target shows as 終点 unless
 往復にする is checked. Results open in a new tab: a map of the itinerary's real
 geometry alongside a timeline, with rows that zoom the map when clicked.
 
-Per-spot ⚙ settings cover `dwell_minutes`, `required_arrival_time`, and
-`required`; a global input sets `transfer_buffer_minutes`.
+Tick 訪問順をおまかせにする to let the planner choose the order of the
+intermediate stops; their badges switch from numbers to 経由 to show the order
+is no longer yours. Per-spot ⚙ settings cover `dwell_minutes`,
+`required_arrival_time`, and `required`; a global input sets
+`transfer_buffer_minutes`.
 
 ## Documents
 
