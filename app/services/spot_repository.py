@@ -18,6 +18,9 @@ class Spot:
     name: str
     lat: float
     lng: float
+    # Free-form labels ("牧場", "登山", ...) used to narrow down what to
+    # suggest visiting. A tuple so Spot stays hashable and immutable.
+    tags: tuple[str, ...] = ()
 
 
 class SpotRepository:
@@ -46,6 +49,8 @@ class SpotRepository:
                 name=entry["name"],
                 lat=float(entry["lat"]),
                 lng=float(entry["lng"]),
+                # Spot files predating tags stay loadable.
+                tags=tuple(entry.get("tags") or ()),
             )
             for entry in raw
         }
@@ -59,12 +64,14 @@ class SpotRepository:
     def list_all(self) -> list[Spot]:
         return list(self._spots.values())
 
-    def add(self, name: str, lat: float, lng: float) -> Spot:
+    def add(
+        self, name: str, lat: float, lng: float, tags: tuple[str, ...] = ()
+    ) -> Spot:
         """Add a new spot with a generated spot_id and persist to disk."""
 
         with self._lock:
             spot_id = self._generate_spot_id()
-            spot = Spot(spot_id=spot_id, name=name, lat=lat, lng=lng)
+            spot = Spot(spot_id=spot_id, name=name, lat=lat, lng=lng, tags=tuple(tags))
             self._spots[spot_id] = spot
             self._persist()
             return spot
@@ -77,7 +84,13 @@ class SpotRepository:
 
     def _persist(self) -> None:
         raw = [
-            {"spot_id": spot.spot_id, "name": spot.name, "lat": spot.lat, "lng": spot.lng}
+            {
+                "spot_id": spot.spot_id,
+                "name": spot.name,
+                "lat": spot.lat,
+                "lng": spot.lng,
+                "tags": list(spot.tags),
+            }
             for spot in self._spots.values()
         ]
         tmp_path = self._path.with_name(self._path.name + ".tmp")

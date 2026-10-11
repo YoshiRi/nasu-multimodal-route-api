@@ -56,6 +56,28 @@
       <button id="route-search-submit" disabled>この行程を検索</button>
     </div>
 
+    <div class="panel-section">
+      <strong>おすすめ行程を提案</strong>
+      <div class="field-row">
+        <label for="suggest-base">起点</label>
+        <select id="suggest-base"></select>
+      </div>
+      <div class="field-row">
+        <label for="suggest-destination">終点</label>
+        <select id="suggest-destination"></select>
+      </div>
+      <div class="field-row">
+        <label for="suggest-arrive-by">終点に着きたい時刻</label>
+        <input id="suggest-arrive-by" type="time" value="18:00" />
+      </div>
+      <div class="field-row">
+        <label for="suggest-spot-count">立ち寄る数</label>
+        <input id="suggest-spot-count" type="number" min="1" max="5" step="1" value="3" />
+      </div>
+      <div id="suggest-tags"></div>
+      <button id="suggest-submit">候補を出す</button>
+    </div>
+
     <div class="panel-section" id="status"></div>
   </div>
 

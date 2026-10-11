@@ -107,6 +107,7 @@ async function loadSpots() {
   for (const spot of spots) {
     addSpotMarker(spot);
   }
+  populateSuggestControls();
 }
 
 // Stop name search (client-side filter over the already-fetched stop list).
@@ -394,6 +395,115 @@ routeSearchButton.addEventListener("click", async () => {
     setStatus(result.status === "success" ? "ルートが見つかりました" : `不成立: ${result.ai_hint}`);
   } catch (err) {
     setStatus(`ルート検索に失敗しました: ${err}`);
+  }
+});
+
+
+// Suggestion flow: let the planner choose the spots. Start/end are fixed,
+// tags narrow what's eligible, and the candidates open in their own tab.
+const suggestBaseSelect = document.getElementById("suggest-base");
+const suggestDestinationSelect = document.getElementById("suggest-destination");
+const suggestTagsEl = document.getElementById("suggest-tags");
+
+function populateSuggestControls() {
+  const byName = [...spots].sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  for (const select of [suggestBaseSelect, suggestDestinationSelect]) {
+    select.innerHTML = "";
+    for (const spot of byName) {
+      const option = document.createElement("option");
+      option.value = spot.spot_id;
+      option.textContent = spot.name;
+      select.appendChild(option);
+    }
+  }
+  if (spots.some((s) => s.spot_id === "station_nasushiobara")) {
+    suggestBaseSelect.value = "station_nasushiobara";
+  }
+  if (spots.some((s) => s.spot_id === "spot_hotel_epinard")) {
+    suggestDestinationSelect.value = "spot_hotel_epinard";
+  }
+
+  const tags = [...new Set(spots.flatMap((spot) => spot.tags || []))].sort((a, b) =>
+    a.localeCompare(b, "ja"),
+  );
+  suggestTagsEl.innerHTML = "";
+  for (const tag of tags) {
+    const label = document.createElement("label");
+    label.className = "tag-choice";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = tag;
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(tag));
+    suggestTagsEl.appendChild(label);
+  }
+}
+
+document.getElementById("suggest-submit").addEventListener("click", async () => {
+  const departureDate = document.getElementById("plan-date").value;
+  const departureTime = document.getElementById("plan-time").value;
+  const arriveBy = document.getElementById("suggest-arrive-by").value;
+  if (!departureDate || !departureTime || !arriveBy) {
+    setStatus("日付・出発時刻・到着したい時刻を指定してください");
+    return;
+  }
+  if (suggestBaseSelect.value === suggestDestinationSelect.value) {
+    setStatus("起点と終点には違うスポットを選んでください");
+    return;
+  }
+
+  const tags = [...suggestTagsEl.querySelectorAll("input:checked")].map((i) => i.value);
+  const baseSpot = spots.find((s) => s.spot_id === suggestBaseSelect.value);
+  const destinationSpot = spots.find((s) => s.spot_id === suggestDestinationSelect.value);
+
+  setStatus("候補を探しています...");
+  try {
+    const response = await fetch("/plan/suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        base_location_id: suggestBaseSelect.value,
+        destination_spot_id: suggestDestinationSelect.value,
+        departure_time: departureTime,
+        departure_date: departureDate,
+        arrive_by: arriveBy,
+        spot_count: parseInt(document.getElementById("suggest-spot-count").value, 10) || 3,
+        tags,
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      setStatus(`候補の取得に失敗しました: ${body.detail || response.status}`);
+      return;
+    }
+    const result = await response.json();
+    localStorage.setItem(
+      "latest_suggestions",
+      JSON.stringify({
+        ...result,
+        request: {
+          base_location_id: baseSpot.spot_id,
+          base_name: baseSpot.name,
+          base_lat: baseSpot.lat,
+          base_lng: baseSpot.lng,
+          destination_spot_id: destinationSpot.spot_id,
+          destination_name: destinationSpot.name,
+          destination_lat: destinationSpot.lat,
+          destination_lng: destinationSpot.lng,
+          departure_time: departureTime,
+          departure_date: departureDate,
+          arrive_by: arriveBy,
+        },
+      }),
+    );
+    window.open("suggest.html", "_blank");
+    setStatus(
+      result.status === "success"
+        ? `${result.candidates.length}件の候補が見つかりました`
+        : `候補なし: ${result.ai_hint}`,
+    );
+  } catch (err) {
+    setStatus(`候補の取得に失敗しました: ${err}`);
   }
 });
 

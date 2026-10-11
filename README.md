@@ -26,6 +26,9 @@ A working proof of concept, honest about what it doesn't do:
 - **Taxi fares are an unverified reference formula**, not real Nasu tariffs.
   Substitute your own via `build_route_plan(..., fare_estimator=...)` — see
   `app/services/taxi_fare.py`.
+- **Suggested itineraries are a heuristic.** `/plan/suggest` runs a beam
+  search over estimated travel times, so candidates are plausible options
+  to choose between rather than the provably best ones.
 - **Visit order optimization is a heuristic, and off by default.** Set
   `optimize_visit_order: true` to have the intermediate stops reordered;
   it is a greedy pass plus a couple of swap rounds, not a guaranteed
@@ -87,6 +90,33 @@ curl "http://localhost:8000/transit/routes?origin_stop_id=stop_yumoto&destinatio
 curl "http://localhost:8000/transit/stops/nearby?lat=37.095&lng=140.001&radius_m=1000"
 curl "http://localhost:8000/non-transit/route?origin_lat=37.095&origin_lng=140.001&dest_lat=37.124&dest_lng=139.985&mode=walking"
 ```
+
+### `POST /plan/suggest` — which spots to visit
+
+Answers the question before route-plan. Give it a start, a destination, a
+deadline and optionally some tags, and it proposes several sets of spots
+that fit, for a person to compare and choose between.
+
+```bash
+curl -X POST http://localhost:8000/plan/suggest \
+  -H "Content-Type: application/json" \
+  -d '{"base_location_id": "station_nasushiobara",
+       "destination_spot_id": "spot_hotel_epinard",
+       "departure_time": "09:00", "departure_date": "2026-10-15",
+       "arrive_by": "18:00", "spot_count": 2, "tags": ["牧場", "動物"]}'
+```
+
+Spots carry `tags` (牧場 / 登山 / 動物 / 温泉 / 美術館 …, see `GET /spots`);
+`tags` keeps only spots with at least one of them, and
+`must_include_spot_ids` pins particular places in regardless. Candidates
+always differ in *which* spots they contain — re-orderings of the same
+places are not offered as separate choices.
+
+This deliberately never calls OpenRouteService: it estimates walking from
+straight-line distance, which keeps a suggestion to a few seconds and
+spends no routing quota. Take a candidate's `spot_ids`, append
+`destination_spot_id`, and pass them to `/plan/route-plan` for the real
+itinerary.
 
 `POST /plan/graph-data` returns direct bus options for every ordered pair
 among 2–15 `stop_ids` in one call, so an agent doesn't need one request per
@@ -152,6 +182,11 @@ Build a route by typing spot names into the ルート作成 box and clicking mat
 click markers on the map instead. The last target shows as 終点 unless
 往復にする is checked. Results open in a new tab: a map of the itinerary's real
 geometry alongside a timeline, with rows that zoom the map when clicked.
+
+The おすすめ行程を提案 panel covers the other direction: pick a start, a
+destination, a deadline and some tags, and candidate itineraries open in
+their own tab as cards — a sketch map plus a schedule each — with a button
+on each to build it for real and land in the full results view.
 
 Tick 訪問順をおまかせにする to let the planner choose the order of the
 intermediate stops; their badges switch from numbers to 経由 to show the order

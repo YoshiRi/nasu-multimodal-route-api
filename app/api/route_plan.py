@@ -17,9 +17,10 @@ router = APIRouter(prefix="/plan", tags=["plan"])
     response_model=RoutePlanResponse,
     summary="Build a bus + walking itinerary for an AI travel concierge",
     description=(
-        "Visits target_spot_ids in the given order, starting and ending at "
-        "base_location_id, using direct bus trips (GTFSEngine) and "
-        "OpenRouteService walking legs. A well-formed request always "
+        "Visits target_spot_ids from base_location_id, ending at the last "
+        "entry, using bus trips (with up to one change per leg) and "
+        "OpenRouteService walking legs. To choose the spots in the first "
+        "place, see POST /plan/suggest. A well-formed request always "
         "returns HTTP 200: status='success' with a plan, or status='error' "
         "with an ai_hint explaining why no plan was feasible and how to "
         "adjust the request. Malformed requests (unknown spot_id, bad time "

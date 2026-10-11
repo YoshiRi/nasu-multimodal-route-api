@@ -33,5 +33,7 @@ def create_spot(
     request: CreateSpotRequest,
     spots: SpotRepository = Depends(get_spot_repository),
 ) -> SpotResponse:
-    spot = spots.add(name=request.name, lat=request.lat, lng=request.lng)
+    spot = spots.add(
+        name=request.name, lat=request.lat, lng=request.lng, tags=tuple(request.tags)
+    )
     return SpotResponse(**vars(spot))

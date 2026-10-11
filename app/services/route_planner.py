@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from math import ceil, inf
+from math import inf
 
 from gtfs_multifeed import GTFSEngine, haversine_distance_m, parse_gtfs_time_to_minutes
 
@@ -15,6 +15,7 @@ from app.models.route_plan import (
 )
 from app.services.ors_client import OrsRequestError, get_driving_route, get_walking_route
 from app.services.spot_repository import Spot, SpotNotFoundError, SpotRepository
+from app.services.travel_estimate import estimate_leg_arrival
 from app.services.taxi_fare import estimate_fare_jpy
 
 # (distance_m) -> fare in JPY. The default is an unverified reference
@@ -39,23 +40,11 @@ NEAREST_STOP_RADIUS_M = 1500
 # (ORS_MAX_REQUESTS_PER_MINUTE in ors_client.py).
 MAX_STOP_CANDIDATES = 8
 
-# Picking a visit order evaluates many more legs than building one plan
-# does, so it searches a narrower set of stops. A pair wrongly judged
-# unreachable here only yields a worse order, never a worse plan — the
-# chosen order is still built with the full MAX_STOP_CANDIDATES.
-ORDERING_STOP_CANDIDATES = 3
-
 # Swap passes over the greedy order. Each pass is O(n^2) order evaluations,
 # but they reuse a leg cache and never touch the routing service, so a
 # couple of passes stay cheap. Two is enough to clean up the obvious
 # greedy mistakes without the runtime creeping up.
 MAX_ORDER_IMPROVEMENT_PASSES = 2
-
-# Walking estimates used while choosing a visit order, in place of calling
-# the routing service: ordering tries far too many legs to spend the shared
-# ORS budget on, and only the final itinerary needs real walking routes.
-WALKING_SPEED_M_PER_MIN = 80.0
-WALKING_DETOUR_FACTOR = 1.3
 
 # Above this straight-line distance, a spot-to-spot "walking" leg (used
 # when a spot has no GTFS stop within NEAREST_STOP_RADIUS_M) switches to
@@ -422,7 +411,7 @@ def _optimize_visit_order(
     the plan by the usual rules rather than silently reshuffled.
 
     All of this runs on estimated walking times (see
-    _estimate_leg_arrival), so it costs no routing-service calls no matter
+    travel_estimate), so it costs no routing-service calls no matter
     how many orders it tries.
     """
 
@@ -545,7 +534,15 @@ def _arrival_at(
 
     key = (origin.spot_id, destination.spot_id, depart_minutes)
     if key not in cache:
-        cache[key] = _estimate_leg_arrival(origin, destination, depart_minutes, engine, request)
+        cache[key] = estimate_leg_arrival(
+            origin,
+            destination,
+            depart_minutes,
+            engine,
+            request.departure_date,
+            request.transfer_buffer_minutes,
+            request.max_transfers,
+        )
     arrival = cache[key]
     if arrival is None:
         return None
@@ -560,72 +557,6 @@ def _arrival_at(
 
 def _dwell_of(target: object) -> int:
     return target.dwell_minutes if target.dwell_minutes is not None else DEFAULT_DWELL_MINUTES
-
-
-def _estimate_leg_arrival(
-    origin: Spot,
-    destination: Spot,
-    depart_minutes: int,
-    engine: GTFSEngine,
-    request: RoutePlanRequest,
-) -> int | None:
-    """Estimate when a leg would land, without calling the routing service.
-
-    Mirrors how _build_leg picks stops — first workable pair wins — so the
-    order chosen here reflects the itinerary that will actually be built.
-    """
-
-    origin_candidates = _nearest_stop_candidates(origin, engine, ORDERING_STOP_CANDIDATES)
-    destination_candidates = _nearest_stop_candidates(
-        destination, engine, ORDERING_STOP_CANDIDATES
-    )
-    direct_distance_m = haversine_distance_m(
-        origin.lat, origin.lng, destination.lat, destination.lng
-    )
-
-    if (
-        not origin_candidates
-        or not destination_candidates
-        or origin_candidates[0]["stop_id"] == destination_candidates[0]["stop_id"]
-    ):
-        return depart_minutes + _estimated_walk_minutes(direct_distance_m)
-
-    for origin_stop in origin_candidates:
-        board_minutes = depart_minutes + _estimated_walk_minutes(
-            haversine_distance_m(
-                origin.lat, origin.lng, origin_stop["stop_lat"], origin_stop["stop_lon"]
-            )
-        )
-        for destination_stop in destination_candidates:
-            if origin_stop["stop_id"] == destination_stop["stop_id"]:
-                continue
-            journeys = engine.search_journeys(
-                origin_stop_id=origin_stop["stop_id"],
-                dest_stop_id=destination_stop["stop_id"],
-                departure_time=_format_minutes(
-                    board_minutes + request.transfer_buffer_minutes
-                ),
-                departure_date=request.departure_date,
-                max_transfers=request.max_transfers,
-            )
-            if not journeys:
-                continue
-            return parse_gtfs_time_to_minutes(journeys[0]["arrival_time"]) + (
-                _estimated_walk_minutes(
-                    haversine_distance_m(
-                        destination_stop["stop_lat"],
-                        destination_stop["stop_lon"],
-                        destination.lat,
-                        destination.lng,
-                    )
-                )
-            )
-
-    return None
-
-
-def _estimated_walk_minutes(distance_m: float) -> int:
-    return max(1, ceil(distance_m * WALKING_DETOUR_FACTOR / WALKING_SPEED_M_PER_MIN))
 
 
 async def _direct_step(

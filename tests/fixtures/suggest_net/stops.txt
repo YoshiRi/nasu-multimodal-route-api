@@ -1,0 +1,6 @@
+stop_id,stop_name,stop_lat,stop_lon
+stop_hub,Hub,36.000000,140.000000
+stop_a,A Stop,36.050000,140.000000
+stop_b,B Stop,36.100000,140.000000
+stop_c,C Stop,36.400000,140.000000
+stop_end,End Stop,36.150000,140.000000
