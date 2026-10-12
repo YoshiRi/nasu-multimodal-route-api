@@ -754,3 +754,39 @@ async def test_build_leg_prefers_a_farther_stop_that_arrives_sooner(
     bus_step = next(step for step in response.plans[0].steps if step.mode == "bus")
     assert bus_step.title == "バス（Fast）"
     assert response.plans[0].steps[-1].end_time < "10:00"
+
+
+@pytest.mark.anyio
+async def test_itinerary_steps_leave_no_gaps(tmp_path: Path) -> None:
+    """Every step must start exactly when the previous one ends.
+
+    A same-stop bus change used to advance the clock by the minimum
+    connection time without emitting a step for it, leaving a couple of
+    unexplained minutes between arriving and starting to wait.
+    """
+
+    engine = GTFSEngine(TRANSFER_NET_DIR)
+    spots = _spot_repository_at(
+        tmp_path,
+        [
+            {"spot_id": "a", "name": "A", "lat": 35.985, "lng": 140.0},
+            {"spot_id": "c", "name": "C", "lat": 36.035, "lng": 140.0},
+        ],
+    )
+    request = RoutePlanRequest(
+        base_location_id="a",
+        target_spot_ids=[{"spot_id": "c"}],
+        departure_time="08:00",
+        departure_date="2026-03-02",
+        transfer_buffer_minutes=5,
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success", response.ai_hint
+    steps = response.plans[0].steps
+    for previous, current in zip(steps, steps[1:]):
+        assert current.start_time == previous.end_time, (
+            f"gap between step {previous.step_order} ({previous.end_time}) "
+            f"and {current.step_order} ({current.start_time})"
+        )

@@ -417,12 +417,16 @@ def _ride_steps(
 
         if index < len(transfers):
             transfer = transfers[index]
-            # A same-stop change needs no walking step — the wait before the
-            # next bus already covers it.
+            # A same-stop change needs no walking step: the traveller is
+            # free the moment they step off, and the wait before the next
+            # bus covers the rest. Advancing the clock here anyway left a
+            # gap in the itinerary between arriving and starting to wait.
+            # The minimum connection time is already honoured — the journey
+            # these steps describe was chosen with it applied.
             if transfer["from_stop_id"] != transfer["to_stop_id"]:
                 steps.append(_transfer_walk_step(transfer, engine, ready_minutes, next_order))
                 next_order += 1
-            ready_minutes += transfer["transfer_minutes"] + transfer_buffer_minutes
+                ready_minutes += transfer["transfer_minutes"]
 
     return steps, next_order, ready_minutes
 
