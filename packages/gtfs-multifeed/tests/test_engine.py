@@ -5,6 +5,7 @@ import pytest
 
 from gtfs_multifeed import (
     GTFSEngine,
+    haversine_distance_m,
     discover_gtfs_feeds,
     parse_gtfs_time_to_minutes,
     parse_service_date_to_gtfs_date,
@@ -242,3 +243,69 @@ def test_discover_gtfs_feeds_finds_valid_feed_subdirectories(tmp_path: Path) -> 
 
     assert set(feeds) == {"feed_a", "feed_b"}
     assert feeds["feed_a"] == tmp_path / "feed_a"
+
+
+# --- nearby_stops ----------------------------------------------------------
+# Route planning calls this once per endpoint of every leg it considers, so
+# it is both hot and load-bearing; these pin the contract its callers rely
+# on (ordering, the radius boundary, and the distances themselves).
+
+
+def test_nearby_stops_returns_nearest_first() -> None:
+    engine = GTFSEngine(FIXTURE_DIR)
+
+    # Just north of 那須塩原駅, which sits ~140m from その他停留所.
+    nearby = engine.nearby_stops(lat=36.9310, lng=140.0200, radius_m=5000)
+
+    assert [stop["stop_id"] for stop in nearby] == ["stop_station", "stop_extra"]
+    distances = [stop["distance_m"] for stop in nearby]
+    assert distances == sorted(distances)
+
+
+def test_nearby_stops_measures_from_the_given_point() -> None:
+    engine = GTFSEngine(FIXTURE_DIR)
+
+    nearby = engine.nearby_stops(lat=37.0950, lng=140.0010, radius_m=100)
+
+    assert len(nearby) == 1
+    assert nearby[0]["stop_id"] == "stop_yumoto"
+    assert nearby[0]["distance_m"] == 0.0
+    assert nearby[0]["stop_name"] == "那須湯本"
+    assert nearby[0]["stop_lat"] == pytest.approx(37.0950)
+    assert nearby[0]["stop_lon"] == pytest.approx(140.0010)
+
+
+def test_nearby_stops_excludes_anything_past_the_radius() -> None:
+    engine = GTFSEngine(FIXTURE_DIR)
+
+    # 那須塩原駅 to その他停留所 is roughly 140m.
+    assert len(engine.nearby_stops(36.9310, 140.0200, radius_m=50)) == 1
+    assert len(engine.nearby_stops(36.9310, 140.0200, radius_m=500)) == 2
+
+
+def test_nearby_stops_returns_empty_when_nothing_is_in_range() -> None:
+    engine = GTFSEngine(FIXTURE_DIR)
+
+    assert engine.nearby_stops(lat=0.0, lng=0.0, radius_m=1000) == []
+
+
+def test_nearby_stops_agrees_with_haversine_distance_m() -> None:
+    engine = GTFSEngine(FIXTURE_DIR)
+
+    nearby = engine.nearby_stops(lat=37.0950, lng=140.0010, radius_m=50_000)
+
+    for stop in nearby:
+        expected = haversine_distance_m(
+            37.0950, 140.0010, stop["stop_lat"], stop["stop_lon"]
+        )
+        assert stop["distance_m"] == pytest.approx(round(expected, 1))
+
+
+def test_nearby_stops_works_on_merged_feeds() -> None:
+    # from_feeds() bypasses __init__, where the coordinate cache would
+    # otherwise be set up.
+    merged = GTFSEngine.from_feeds({"nasu": FIXTURE_DIR, "other": OTHER_FIXTURE_DIR})
+
+    nearby = merged.nearby_stops(lat=37.0950, lng=140.0010, radius_m=100)
+
+    assert [stop["stop_id"] for stop in nearby] == ["nasu:stop_yumoto"]

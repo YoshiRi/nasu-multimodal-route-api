@@ -222,27 +222,57 @@ class GTFSEngine:
         lng: float,
         radius_m: float = 500,
     ) -> list[dict[str, str | float]]:
-        """Return GTFS stops within radius_m of (lat, lng), nearest first."""
+        """Return GTFS stops within radius_m of (lat, lng), nearest first.
 
-        stops = self.stops.copy()
-        stops["distance_m"] = stops.apply(
-            lambda row: haversine_distance_m(
-                lat, lng, float(row["stop_lat"]), float(row["stop_lon"])
-            ),
-            axis=1,
+        Vectorized, and over cached coordinate arrays: route planning calls
+        this once per endpoint of every leg it considers, which a row-wise
+        pass over every stop made the dominant cost of a search.
+        """
+
+        if self.stops.empty:
+            return []
+
+        stop_lat, stop_lon = self._stop_radians()
+        origin_lat, origin_lng = radians(lat), radians(lng)
+        d_lat = stop_lat - origin_lat
+        d_lon = stop_lon - origin_lng
+        haversine = (
+            np.sin(d_lat / 2) ** 2
+            + np.cos(origin_lat) * np.cos(stop_lat) * np.sin(d_lon / 2) ** 2
         )
-        stops = stops[stops["distance_m"] <= radius_m].sort_values("distance_m")
+        distance_m = 2 * EARTH_RADIUS_M * np.arcsin(np.sqrt(haversine))
+
+        within = np.nonzero(distance_m <= radius_m)[0]
+        nearest_first = within[np.argsort(distance_m[within], kind="stable")]
+
+        stop_ids = self.stops["stop_id"].to_numpy()
+        stop_names = self.stops["stop_name"].to_numpy()
+        latitudes = self.stops["stop_lat"].to_numpy(dtype=float)
+        longitudes = self.stops["stop_lon"].to_numpy(dtype=float)
 
         return [
             {
-                "stop_id": str(row.stop_id),
-                "stop_name": str(row.stop_name),
-                "stop_lat": float(row.stop_lat),
-                "stop_lon": float(row.stop_lon),
-                "distance_m": round(float(row.distance_m), 1),
+                "stop_id": str(stop_ids[index]),
+                "stop_name": str(stop_names[index]),
+                "stop_lat": float(latitudes[index]),
+                "stop_lon": float(longitudes[index]),
+                "distance_m": round(float(distance_m[index]), 1),
             }
-            for row in stops.itertuples(index=False)
+            for index in nearest_first
         ]
+
+    def _stop_radians(self) -> tuple[np.ndarray, np.ndarray]:
+        """Stop coordinates in radians, computed once per engine."""
+
+        cached = getattr(self, "_stop_radians_cache", None)
+        if cached is None:
+            # from_feeds() builds instances via __new__, so this cannot be
+            # set up in __init__ alone.
+            cached = self._stop_radians_cache = (
+                np.radians(self.stops["stop_lat"].to_numpy(dtype=float)),
+                np.radians(self.stops["stop_lon"].to_numpy(dtype=float)),
+            )
+        return cached
 
     def search_journeys(
         self,

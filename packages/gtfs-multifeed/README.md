@@ -99,6 +99,10 @@ detour factor, and floored at a couple of minutes — a bus will not wait.
 Building the graph is fast enough to not need caching strategy: 3,164 stops
 (5M pairs) took 0.09s, and the result is cached per radius anyway.
 
+`nearby_stops()` is vectorized over cached coordinate arrays — route
+planners call it once per endpoint of every leg they consider, so it is
+hot: 0.7ms against 3,164 stops.
+
 Command line:
 
 ```bash
