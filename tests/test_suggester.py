@@ -203,3 +203,96 @@ def test_must_include_survives_beam_pruning(
         "only the required spot on its own came back; the second slot was "
         "pruned away"
     )
+
+
+# --- taxi as a rescue -------------------------------------------------------
+
+
+def test_no_taxi_by_default(spots, engine) -> None:
+    for candidate in _suggest(spots, engine, spot_count=2):
+        assert candidate.taxi_legs == 0
+        assert all(not stop.by_taxi for stop in candidate.stops)
+
+
+def test_taxi_opens_up_a_trip_after_the_last_bus(spots, engine) -> None:
+    # The fixture's last departure is 20:00, so nothing runs at this hour.
+    late = dict(spot_count=1, departure_time="21:00", arrive_by="23:59")
+
+    assert _suggest(spots, engine, **late) == []
+
+    # Getting there and back both need a car once the buses have stopped.
+    with_taxi = _suggest(spots, engine, **late, max_taxi_legs=2)
+
+    assert with_taxi
+    assert with_taxi[0].taxi_legs == 2
+    assert with_taxi[0].stops[0].by_taxi
+
+
+def test_taxi_budget_is_enforced(spots, engine) -> None:
+    # Same trip needs two taxi hops; allowing only one is not enough.
+    late = dict(spot_count=1, departure_time="21:00", arrive_by="23:59")
+
+    assert _suggest(spots, engine, **late, max_taxi_legs=1) == []
+    assert _suggest(spots, engine, **late, max_taxi_legs=2)
+
+
+def test_taxi_is_a_rescue_not_a_shortcut(spots, engine) -> None:
+    """Legs a bus already serves must stay on the bus."""
+
+    candidates = _suggest(spots, engine, spot_count=2, max_taxi_legs=2)
+
+    # "a" and "b" are both on the bus line with plenty of time, so no
+    # candidate should be spending a taxi on them.
+    for candidate in candidates:
+        for stop in candidate.stops:
+            if stop.spot.spot_id in {"a", "b"}:
+                assert not stop.by_taxi
+
+
+def test_all_bus_candidates_rank_above_ones_needing_a_taxi(spots, engine) -> None:
+    candidates = _suggest(spots, engine, spot_count=2, max_taxi_legs=1, max_candidates=10)
+
+    taxi_counts = [candidate.taxi_legs for candidate in candidates]
+    assert taxi_counts == sorted(taxi_counts)
+
+
+def test_taxi_fare_is_zero_for_an_all_bus_candidate(spots, engine) -> None:
+    from app.services.suggester import estimate_taxi_fare_jpy, taxi_legs_of
+    from app.services.taxi_fare import estimate_fare_jpy
+
+    candidate = _suggest(spots, engine, spot_count=1)[0]
+    base, destination = spots.get("hub"), spots.get("end")
+
+    assert candidate.taxi_legs == 0
+    assert taxi_legs_of(candidate, base, destination) == []
+    assert estimate_taxi_fare_jpy(candidate, base, destination, estimate_fare_jpy) == 0
+
+
+def test_taxi_fare_counts_every_taxi_hop(spots, engine) -> None:
+    from app.services.suggester import estimate_taxi_fare_jpy, taxi_legs_of
+    from app.services.taxi_fare import estimate_fare_jpy
+
+    candidate = _suggest(
+        spots, engine, spot_count=1, departure_time="21:00",
+        arrive_by="23:59", max_taxi_legs=2,
+    )[0]
+    base, destination = spots.get("hub"), spots.get("end")
+
+    legs = taxi_legs_of(candidate, base, destination)
+    assert len(legs) == candidate.taxi_legs
+    assert estimate_taxi_fare_jpy(candidate, base, destination, estimate_fare_jpy) > 0
+
+
+def test_zero_taxi_budget_means_zero_taxis(spots, engine) -> None:
+    """Asking for no taxis must not return a plan with a fare attached.
+
+    Hops with no bus stop at either end are a taxi by geography; they were
+    briefly exempt from the allowance, which meant a bus-only request came
+    back with a five-figure fare.
+    """
+
+    late = dict(spot_count=1, departure_time="21:00", arrive_by="23:59")
+
+    for candidate in _suggest(spots, engine, **late, max_taxi_legs=0):
+        assert candidate.taxi_legs == 0
+        assert all(not stop.by_taxi for stop in candidate.stops)

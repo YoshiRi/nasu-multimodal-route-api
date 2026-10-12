@@ -15,7 +15,11 @@ from app.models.route_plan import (
 )
 from app.services.ors_client import OrsRequestError, get_driving_route, get_walking_route
 from app.services.spot_repository import Spot, SpotNotFoundError, SpotRepository
-from app.services.travel_estimate import estimate_leg_arrival, estimated_walk_minutes
+from app.services.travel_estimate import (
+    MAX_DIRECT_WALKING_DISTANCE_M,
+    estimate_leg_arrival,
+    estimated_walk_minutes,
+)
 from app.services.taxi_fare import estimate_fare_jpy
 
 # (distance_m) -> fare in JPY. The default is an unverified reference
@@ -53,11 +57,6 @@ STOP_PAIR_SEARCH_LIMIT = 4
 # greedy mistakes without the runtime creeping up.
 MAX_ORDER_IMPROVEMENT_PASSES = 2
 
-# Above this straight-line distance, a spot-to-spot "walking" leg (used
-# when a spot has no GTFS stop within NEAREST_STOP_RADIUS_M) switches to
-# taxi instead — walking the whole distance would otherwise be unrealistic
-# (e.g. a multi-hour walk).
-MAX_DIRECT_WALKING_DISTANCE_M = 3000
 
 
 class RoutePlanInputError(ValueError):

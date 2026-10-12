@@ -32,6 +32,22 @@ WALKING_SPEED_M_PER_MIN = 80.0
 # Straight-line distance understates street distance.
 WALKING_DETOUR_FACTOR = 1.3
 
+# Rough road speed for sizing a taxi leg, used to answer "would this trip
+# work if we took a taxi for one hop" without routing it. Deliberately
+# conservative for mountain roads.
+TAXI_SPEED_M_PER_MIN = 500.0
+TAXI_DETOUR_FACTOR = 1.3
+# Waiting for, and getting into, the taxi.
+TAXI_OVERHEAD_MINUTES = 10
+
+# Above this straight-line distance, a spot-to-spot hop with no usable bus
+# stop at either end is a taxi ride, not a walk. route_planner._direct_step
+# builds exactly that, so estimating it as a walk would have the estimate
+# describe a journey nobody would take — a 21km hop came back as a
+# five-and-a-half-hour walk, which then looked merely slow rather than
+# impossible, and no taxi was ever considered for it.
+MAX_DIRECT_WALKING_DISTANCE_M = 3000
+
 # Leg cache key: (origin spot, destination spot, departure minute).
 LegCache = dict[tuple[str, str, int], "int | None"]
 
@@ -69,6 +85,8 @@ def estimate_leg_arrival(
         or not destination_candidates
         or origin_candidates[0]["stop_id"] == destination_candidates[0]["stop_id"]
     ):
+        if direct_distance_m > MAX_DIRECT_WALKING_DISTANCE_M:
+            return depart_minutes + estimated_taxi_minutes(origin, destination)
         return depart_minutes + estimated_walk_minutes(direct_distance_m)
 
     for origin_stop in origin_candidates:
@@ -125,6 +143,43 @@ def cached_leg_arrival(
             max_transfers,
         )
     return cache[key]
+
+
+def needs_taxi_regardless(origin: Spot, destination: Spot, engine: GTFSEngine) -> bool:
+    """True when this hop has no bus option at all and is too far to walk.
+
+    Geography, not choice: the planner will build a taxi leg here whatever
+    the caller's taxi budget says, so it is not counted against it.
+    """
+
+    if (
+        nearest_stop_candidates(origin, engine)
+        and nearest_stop_candidates(destination, engine)
+        and nearest_stop_candidates(origin, engine)[0]["stop_id"]
+        != nearest_stop_candidates(destination, engine)[0]["stop_id"]
+    ):
+        return False
+    return (
+        haversine_distance_m(origin.lat, origin.lng, destination.lat, destination.lng)
+        > MAX_DIRECT_WALKING_DISTANCE_M
+    )
+
+
+def taxi_distance_m(origin: Spot, destination: Spot) -> float:
+    """Road distance for a taxi hop, approximated from the straight line."""
+
+    return (
+        haversine_distance_m(origin.lat, origin.lng, destination.lat, destination.lng)
+        * TAXI_DETOUR_FACTOR
+    )
+
+
+def estimated_taxi_minutes(origin: Spot, destination: Spot) -> int:
+    """Door-to-door minutes for a taxi hop, including getting hold of one."""
+
+    return TAXI_OVERHEAD_MINUTES + max(
+        1, ceil(taxi_distance_m(origin, destination) / TAXI_SPEED_M_PER_MIN)
+    )
 
 
 def format_minutes(total_minutes: int) -> str:

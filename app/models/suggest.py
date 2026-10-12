@@ -66,6 +66,20 @@ class SuggestRequest(BaseModel):
         le=1,
         description="Bus changes allowed within a single leg (see POST /plan/route-plan).",
     )
+    max_taxi_legs: int = Field(
+        0,
+        ge=0,
+        le=2,
+        description=(
+            "How many hops may be taken by taxi when no bus gets through. "
+            "Answers 'would this trip work if I took one taxi?' — taxi is "
+            "only ever used where buses fail, never to shave time off a "
+            "leg that already works, and all-bus candidates still rank "
+            "first. Times and fares for taxi hops are rough estimates "
+            "from straight-line distance."
+        ),
+        examples=[1],
+    )
 
 
 class SuggestedStopResponse(BaseModel):
@@ -74,6 +88,9 @@ class SuggestedStopResponse(BaseModel):
     lat: float = Field(description="Spot latitude.")
     lng: float = Field(description="Spot longitude.")
     tags: list[str] = Field(description="The spot's tags.")
+    by_taxi: bool = Field(
+        description="True when no bus reached this spot in time and a taxi was assumed."
+    )
     arrival_time: str = Field(description='Estimated arrival, "HH:MM".')
     departure_time: str = Field(description='Estimated departure after the stay, "HH:MM".')
 
@@ -93,6 +110,16 @@ class SuggestedItinerary(BaseModel):
     )
     total_duration_min: int = Field(
         description="Estimated minutes from departure to arriving at the destination."
+    )
+    taxi_legs: int = Field(
+        description="How many hops in this candidate need a taxi. 0 means all bus."
+    )
+    estimated_taxi_fare_jpy: int = Field(
+        description=(
+            "Rough total fare for those hops, 0 when there are none. From "
+            "straight-line distance and an unverified fare formula — "
+            "indicative only."
+        )
     )
 
 

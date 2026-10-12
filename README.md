@@ -106,6 +106,13 @@ curl -X POST http://localhost:8000/plan/suggest \
        "arrive_by": "18:00", "spot_count": 2, "tags": ["牧場", "動物"]}'
 ```
 
+`max_taxi_legs` answers a different question: *would this trip work if I
+took a taxi for one hop?* Taxi is only ever substituted where no bus gets
+through — never to shave time off a leg that already works — and all-bus
+candidates still rank first. The allowance covers every taxi hop,
+including ones forced by a spot having no bus stop near it, so asking for
+zero really does mean zero.
+
 Spots carry `tags` (牧場 / 登山 / 動物 / 温泉 / 美術館 …, see `GET /spots`);
 `tags` keeps only spots with at least one of them, and
 `must_include_spot_ids` pins particular places in regardless. Candidates
@@ -204,6 +211,13 @@ is no longer yours. Per-spot ⚙ settings cover `dwell_minutes`,
 - `docs/project-instruction.md` — original project instruction
 - `docs/spec-review.md` — implementation review and open questions
 - `docs/implementation-plan.md` — living implementation plan and change log
+
+`scripts/check_scenarios.py` runs realistic trips (arriving at the station
+and heading to a hotel, leaving a hotel to catch a train) against the real
+feeds and prints what comes back. It needs `data/gtfs/`, so it cannot run
+in CI — but every bug found since the planner started working was found
+this way, by the interaction of search limits with a real timetable rather
+than by any single function being wrong.
 
 ## License
 

@@ -14,13 +14,21 @@ chosen candidate is actually built.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from math import ceil
 
 from gtfs_multifeed import GTFSEngine, haversine_distance_m, parse_gtfs_time_to_minutes
 
 from app.services.spot_repository import Spot, SpotNotFoundError, SpotRepository
-from app.services.travel_estimate import LegCache, cached_leg_arrival, format_minutes
+from app.services.travel_estimate import (
+    LegCache,
+    cached_leg_arrival,
+    estimated_taxi_minutes,
+    format_minutes,
+    needs_taxi_regardless,
+    taxi_distance_m,
+)
 
 # Without a tag hint every spot is a candidate, which is too many legs to
 # evaluate interactively. Keep the ones closest to the straight line from
@@ -54,12 +62,15 @@ class SuggestedStop:
     spot: Spot
     arrival_minutes: int
     departure_minutes: int
+    # True when the only way to get here in time was a taxi.
+    by_taxi: bool = False
 
 
 @dataclass(frozen=True)
 class Candidate:
     stops: tuple[SuggestedStop, ...]
     destination_arrival_minutes: int
+    taxi_legs: int = 0
 
     @property
     def spot_ids(self) -> frozenset[str]:
@@ -78,6 +89,7 @@ class Candidate:
 class _Partial:
     stops: tuple[SuggestedStop, ...]
     free_at_minutes: int
+    taxi_legs: int = 0
 
     @property
     def position(self) -> Spot:
@@ -98,6 +110,7 @@ def suggest_itineraries(
     dwell_minutes: int = 60,
     max_candidates: int = 3,
     max_transfers: int = 1,
+    max_taxi_legs: int = 0,
 ) -> list[Candidate]:
     """Return candidate itineraries, soonest arrival at the destination first."""
 
@@ -121,14 +134,14 @@ def suggest_itineraries(
     for _ in range(spot_count):
         beam = _expand(
             beam, pool, base, engine, departure_date, deadline_minutes,
-            dwell_minutes, max_transfers, cache, required,
+            dwell_minutes, max_transfers, cache, required, max_taxi_legs,
         )
         if not beam:
             break
         finished.extend(
             _close_off(
                 beam, base, destination, engine, departure_date, deadline_minutes,
-                max_transfers, required, cache,
+                max_transfers, required, cache, max_taxi_legs,
             )
         )
 
@@ -164,6 +177,45 @@ def _build_pool(
     return must_keep + optional[:room]
 
 
+def _reach(
+    origin: Spot,
+    destination: Spot,
+    depart_minutes: int,
+    taxi_legs_used: int,
+    max_taxi_legs: int,
+    engine: GTFSEngine,
+    departure_date: str,
+    max_transfers: int,
+    cache: LegCache,
+) -> tuple[int, bool] | None:
+    """When this leg lands and whether it needed a taxi, or None.
+
+    Taxi is a rescue, not an optimisation: it is only considered where no
+    bus gets through at all. That answers the question people actually ask
+    — "does this trip work if I taxi one hop?" — without quietly turning a
+    bus holiday into a taxi one.
+
+    Hops with no bus stop at either end and too far to walk are a taxi by
+    geography rather than by choice, but they still count against the
+    allowance: asking for no taxis and being handed a ¥15,000 fare is not
+    an answer to the question that was asked.
+    """
+
+    arrival = cached_leg_arrival(
+        origin, destination, _on_grid(depart_minutes), engine, departure_date,
+        cache, max_transfers=max_transfers,
+    )
+    if arrival is not None:
+        if not needs_taxi_regardless(origin, destination, engine):
+            return arrival, False
+        if taxi_legs_used >= max_taxi_legs:
+            return None
+        return arrival, True
+    if taxi_legs_used >= max_taxi_legs:
+        return None
+    return depart_minutes + estimated_taxi_minutes(origin, destination), True
+
+
 def _detour_m(base: Spot, destination: Spot, spot: Spot) -> float:
     """How much further going via this spot is than going straight there."""
 
@@ -185,6 +237,7 @@ def _expand(
     max_transfers: int,
     cache: LegCache,
     required: list[Spot],
+    max_taxi_legs: int,
 ) -> list[_Partial]:
     grown: list[_Partial] = []
     for partial in beam:
@@ -195,17 +248,15 @@ def _expand(
                 continue
             if _too_far(position, spot, partial.free_at_minutes + dwell_minutes, deadline_minutes):
                 continue
-            arrival = cached_leg_arrival(
-                position,
-                spot,
-                _on_grid(partial.free_at_minutes),
-                engine,
-                departure_date,
-                cache,
-                max_transfers=max_transfers,
+            reached = _reach(
+                position, spot, partial.free_at_minutes, partial.taxi_legs,
+                max_taxi_legs, engine, departure_date, max_transfers, cache,
             )
+            if reached is None:
+                continue
+            arrival, by_taxi = reached
             # No point going somewhere we are already too late to leave.
-            if arrival is None or arrival + dwell_minutes > deadline_minutes:
+            if arrival + dwell_minutes > deadline_minutes:
                 continue
             grown.append(
                 _Partial(
@@ -215,9 +266,11 @@ def _expand(
                             spot=spot,
                             arrival_minutes=arrival,
                             departure_minutes=arrival + dwell_minutes,
+                            by_taxi=by_taxi,
                         ),
                     ),
                     free_at_minutes=arrival + dwell_minutes,
+                    taxi_legs=partial.taxi_legs + (1 if by_taxi else 0),
                 )
             )
 
@@ -244,6 +297,7 @@ def _close_off(
     max_transfers: int,
     required: list[Spot],
     cache: LegCache,
+    max_taxi_legs: int,
 ) -> list[Candidate]:
     required_ids = {spot.spot_id for spot in required}
     candidates: list[Candidate] = []
@@ -252,19 +306,21 @@ def _close_off(
             continue
         if _too_far(partial.position, destination, partial.free_at_minutes, deadline_minutes):
             continue
-        arrival = cached_leg_arrival(
-            partial.position,
-            destination,
-            _on_grid(partial.free_at_minutes),
-            engine,
-            departure_date,
-            cache,
-            max_transfers=max_transfers,
+        reached = _reach(
+            partial.position, destination, partial.free_at_minutes, partial.taxi_legs,
+            max_taxi_legs, engine, departure_date, max_transfers, cache,
         )
-        if arrival is None or arrival > deadline_minutes:
+        if reached is None:
+            continue
+        arrival, by_taxi = reached
+        if arrival > deadline_minutes:
             continue
         candidates.append(
-            Candidate(stops=partial.stops, destination_arrival_minutes=arrival)
+            Candidate(
+                stops=partial.stops,
+                destination_arrival_minutes=arrival,
+                taxi_legs=partial.taxi_legs + (1 if by_taxi else 0),
+            )
         )
     return candidates
 
@@ -279,15 +335,16 @@ def _rank(candidates: list[Candidate], max_candidates: int) -> list[Candidate]:
     best_by_spots: dict[frozenset[str], Candidate] = {}
     for candidate in candidates:
         current = best_by_spots.get(candidate.spot_ids)
-        if (
-            current is None
-            or candidate.destination_arrival_minutes < current.destination_arrival_minutes
+        if current is None or (candidate.taxi_legs, candidate.destination_arrival_minutes) < (
+            current.taxi_legs,
+            current.destination_arrival_minutes,
         ):
             best_by_spots[candidate.spot_ids] = candidate
 
     ranked = sorted(
         best_by_spots.values(),
         key=lambda candidate: (
+            candidate.taxi_legs,  # an all-bus trip beats one needing a taxi
             -len(candidate.stops),
             candidate.destination_arrival_minutes,
         ),
@@ -317,11 +374,44 @@ def _on_grid(minutes: int) -> int:
     return minutes + (-minutes % TIME_GRID_MINUTES)
 
 
+def taxi_legs_of(
+    candidate: Candidate, base: Spot, destination: Spot
+) -> list[tuple[Spot, Spot]]:
+    """The (from, to) pairs in this candidate that assume a taxi.
+
+    The stops carry their own flag; the hop to the destination does not
+    have a stop to hang one on, so it is inferred from the count.
+    """
+
+    legs: list[tuple[Spot, Spot]] = []
+    position = base
+    for stop in candidate.stops:
+        if stop.by_taxi:
+            legs.append((position, stop.spot))
+        position = stop.spot
+    if candidate.taxi_legs > len(legs):
+        legs.append((position, destination))
+    return legs
+
+
+def estimate_taxi_fare_jpy(
+    candidate: Candidate,
+    base: Spot,
+    destination: Spot,
+    fare_estimator: Callable[[float], int],
+) -> int:
+    return sum(
+        fare_estimator(taxi_distance_m(origin, target))
+        for origin, target in taxi_legs_of(candidate, base, destination)
+    )
+
+
 def describe(candidate: Candidate, destination: Spot) -> str:
     """One-line summary, for the ai_hint."""
 
     names = " → ".join(stop.spot.name for stop in candidate.stops)
+    taxi = f"・タクシー{candidate.taxi_legs}区間" if candidate.taxi_legs else ""
     return (
         f"{names} → {destination.name}"
-        f"（{format_minutes(candidate.destination_arrival_minutes)}着）"
+        f"（{format_minutes(candidate.destination_arrival_minutes)}着{taxi}）"
     )
