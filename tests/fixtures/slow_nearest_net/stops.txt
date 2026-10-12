@@ -1,0 +1,4 @@
+stop_id,stop_name,stop_lat,stop_lon
+stop_origin,Origin Stop,36.000000,140.000000
+stop_near,Near Slow Stop,36.030000,140.000000
+stop_fast,Far Fast Stop,36.031000,140.000000

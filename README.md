@@ -161,6 +161,11 @@ boarding, `max_transfers` (default 1) controls whether a leg may change buses,
 and `optimize_visit_order` (default false) reorders the intermediate targets to
 finish sooner — the last entry stays put, since it is the destination.
 
+For each leg, the nearest few stops at both ends are compared and the pair
+that arrives soonest wins — picking the closest stop that merely *has* a
+bus cost 84 minutes per leg on average against real timetables, because the
+closest stop is often served by something that runs twice a day.
+
 Spots come from `data/spots/nasu_spots.json` (`spot_id`/`name`/`lat`/`lng`;
 override with `SPOTS_FILE`) — not GTFS `stop_id`s. The nearest usable GTFS
 stop is resolved on the fly. Each step carries a `path` of `[lat, lng]`

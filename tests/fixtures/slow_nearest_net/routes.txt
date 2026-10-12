@@ -1,0 +1,3 @@
+route_id,agency_id,route_short_name,route_long_name,route_type
+route_slow,ag,Slow,Slow Line,3
+route_fast,ag,Fast,Fast Line,3

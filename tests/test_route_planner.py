@@ -721,3 +721,36 @@ async def test_reordering_will_not_break_a_reservation_time(tmp_path: Path) -> N
 
     assert response.status == "error"
     assert response.plans == []
+
+
+SLOW_NEAREST_NET_DIR = Path(__file__).parent / "fixtures" / "slow_nearest_net"
+
+
+@pytest.mark.anyio
+async def test_build_leg_prefers_a_farther_stop_that_arrives_sooner(
+    tmp_path: Path,
+) -> None:
+    # The destination's nearest stop is served once a day and gets there at
+    # 18:00; a stop 111m further along has a fast service arriving 09:30.
+    # Taking the first stop that has *any* bus would pick the slow one.
+    engine = GTFSEngine(SLOW_NEAREST_NET_DIR)
+    spots = _spot_repository_at(
+        tmp_path,
+        [
+            {"spot_id": "origin", "name": "Origin", "lat": 36.0, "lng": 140.0},
+            {"spot_id": "dest", "name": "Destination", "lat": 36.03, "lng": 140.0},
+        ],
+    )
+    request = RoutePlanRequest(
+        base_location_id="origin",
+        target_spot_ids=[{"spot_id": "dest"}],
+        departure_time="09:00",
+        departure_date="2026-03-02",
+    )
+
+    response = await build_route_plan(request, engine, spots)
+
+    assert response.status == "success", response.ai_hint
+    bus_step = next(step for step in response.plans[0].steps if step.mode == "bus")
+    assert bus_step.title == "バス（Fast）"
+    assert response.plans[0].steps[-1].end_time < "10:00"
