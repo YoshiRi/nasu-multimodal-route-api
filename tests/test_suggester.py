@@ -7,6 +7,7 @@ import pytest
 from gtfs_multifeed import GTFSEngine
 
 from app.services.spot_repository import SpotRepository
+import app.services.suggester as suggester
 from app.services.suggester import SuggestInputError, suggest_itineraries
 from app.services.travel_estimate import format_minutes
 
@@ -167,3 +168,38 @@ def test_suggested_times_are_not_earlier_than_a_direct_estimate(spots, engine) -
     )
     assert direct is not None
     assert stop.arrival_minutes >= direct
+
+
+def test_must_include_survives_beam_pruning(
+    spots, engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A required spot must not be pruned for merely being slower.
+
+    The beam keeps whichever partial itineraries are free soonest. A
+    required spot that happens to be further out loses that comparison, so
+    ranking on time alone drops every branch containing it and the
+    must-include check at the end then has nothing left to accept — even
+    when a perfectly good itinerary through it exists.
+    """
+
+    # Narrow the beam so the fixture's handful of spots actually competes
+    # for a slot; with real data the pool is far larger than the beam.
+    monkeypatch.setattr(suggester, "SUGGESTION_BEAM_WIDTH", 1)
+
+    # "c" is the far one: reaching it takes longer than reaching a or b, so
+    # a time-ranked beam discards it at the first step.
+    candidates = _suggest(
+        spots,
+        engine,
+        spot_count=2,
+        must_include_spot_ids=["c"],
+        arrive_by="23:00",
+        dwell_minutes=30,
+    )
+
+    assert candidates, "no itinerary found through the required spot"
+    assert all("c" in candidate.spot_ids for candidate in candidates)
+    assert any(len(candidate.stops) == 2 for candidate in candidates), (
+        "only the required spot on its own came back; the second slot was "
+        "pruned away"
+    )

@@ -121,7 +121,7 @@ def suggest_itineraries(
     for _ in range(spot_count):
         beam = _expand(
             beam, pool, base, engine, departure_date, deadline_minutes,
-            dwell_minutes, max_transfers, cache,
+            dwell_minutes, max_transfers, cache, required,
         )
         if not beam:
             break
@@ -184,6 +184,7 @@ def _expand(
     dwell_minutes: int,
     max_transfers: int,
     cache: LegCache,
+    required: list[Spot],
 ) -> list[_Partial]:
     grown: list[_Partial] = []
     for partial in beam:
@@ -220,7 +221,16 @@ def _expand(
                 )
             )
 
-    grown.sort(key=lambda partial: partial.free_at_minutes)
+    # Rank on what is still missing first, then on time. Sorting on time
+    # alone drops every branch through a required spot the moment that spot
+    # is further out than the alternatives, and the must-include check at
+    # the end is then left with nothing to accept.
+    required_ids = {spot.spot_id for spot in required}
+
+    def still_missing(partial: _Partial) -> int:
+        return len(required_ids - {stop.spot.spot_id for stop in partial.stops})
+
+    grown.sort(key=lambda partial: (still_missing(partial), partial.free_at_minutes))
     return grown[:SUGGESTION_BEAM_WIDTH]
 
 
