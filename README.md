@@ -37,13 +37,20 @@ A working proof of concept, honest about what it doesn't do:
 
 ## Setup
 
+Needs Python 3.11 or newer — check `python3 --version` first; macOS's
+bundled `python3` is often older, in which case use `python3.11` below.
+
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -e packages/gtfs-multifeed
-python -m pip install -e ".[dev]"
+python -m pip install -r requirements-dev.txt
 python -m pytest
 ```
+
+`requirements-dev.txt` installs the bundled `gtfs-multifeed` library and the
+app together. Don't run `pip install -e .` on its own: the library is not on
+PyPI, so pip would go looking for it there and fail. (`uv sync` also works;
+`[tool.uv.sources]` points it at the local copy.)
 
 Walking and taxi legs call [OpenRouteService](https://openrouteservice.org/),
 so `POST /plan/route-plan` and `GET /non-transit/route` need an API key:
@@ -82,6 +89,19 @@ Open `http://localhost:8000/docs` for Swagger UI.
 GTFS source is picked automatically: `GTFS_DIR` if set, otherwise every valid
 feed under `data/gtfs/` (merged with `"<feed_name>:"`-prefixed IDs), otherwise
 `tests/fixtures/minimal_gtfs` so the API runs with no setup at all.
+
+That last fallback is a tiny made-up network, so plans for real Nasu spots
+come back empty. The server says so rather than leaving you to guess: a
+warning at startup, a banner in the debug UI, and an `ai_hint` naming the
+missing data instead of suggesting you visit fewer places. `GET /status`
+lists the loaded feeds with the dates their timetables cover, and warns
+when one has lapsed or will within 30 days.
+
+Feeds expire on their own schedules — the city and town feeds run to the
+end of March, Kanto Jidousha's to the end of July. A date past every feed
+gets an ai_hint saying the timetable doesn't cover it; a date past only
+some of them still plans, with a note that those operators' buses were
+left out.
 
 ### Endpoints
 

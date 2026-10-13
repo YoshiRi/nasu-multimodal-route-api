@@ -507,5 +507,18 @@ document.getElementById("suggest-submit").addEventListener("click", async () => 
   }
 });
 
+// Without real timetables every plan comes back empty, which looks like a
+// bug rather than a setup step. Say what's wrong before anyone tries.
+async function loadDataWarnings() {
+  const response = await fetch("/status");
+  if (!response.ok) return;
+  const { warnings } = await response.json();
+  if (!warnings.length) return;
+  const box = document.getElementById("data-warnings");
+  box.innerHTML = warnings.map((w) => `<p>⚠ ${escapeHtml(w)}</p>`).join("");
+  box.hidden = false;
+}
+
+loadDataWarnings();
 loadNetwork();
 loadSpots();

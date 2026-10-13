@@ -30,6 +30,13 @@ def client(tmp_path: Path):
     app.dependency_overrides.update(previous)
 
 
+def _hint(client, **overrides) -> str:
+    body = client.post("/plan/suggest", json={**BASE_REQUEST, **overrides}).json()
+    assert body["status"] == "error"
+    assert body["candidates"] == []
+    return body["ai_hint"]
+
+
 @pytest.fixture
 def fake_walking_route(monkeypatch: pytest.MonkeyPatch):
     """/plan/route-plan routes its walks for real; /plan/suggest never does."""
@@ -115,3 +122,35 @@ def test_spots_endpoint_exposes_tags(client) -> None:
 
     by_id = {spot["spot_id"]: spot for spot in body}
     assert by_id["a"]["tags"] == ["牧場"]
+
+
+# --- when the data, not the request, is the problem -------------------------
+
+
+def test_date_outside_the_timetable_says_so(client) -> None:
+    """Advice to visit fewer places can't fix a date with no timetable."""
+
+    hint = _hint(client, departure_date="2030-01-07")
+
+    assert "有効期間外" in hint
+    assert "減ら" not in hint.split("。")[0]
+
+
+def test_fixture_gtfs_is_named_as_the_cause(client) -> None:
+    from app.core.config import get_settings
+    from app.main import app
+    from tests.conftest import settings_with
+
+    app.dependency_overrides[get_settings] = lambda: settings_with(using_fixture_gtfs=True)
+
+    hint = _hint(client, arrive_by="08:30")
+
+    assert "テスト用" in hint
+    assert "download_gtfs.py" in hint
+
+
+def test_ordinary_failure_keeps_the_request_advice(client) -> None:
+    hint = _hint(client, arrive_by="08:30")
+
+    assert "有効期間外" not in hint
+    assert "テスト用" not in hint

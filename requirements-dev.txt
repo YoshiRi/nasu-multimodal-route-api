@@ -1,0 +1,8 @@
+# One-step setup: pip install -r requirements-dev.txt
+#
+# The app depends on gtfs-multifeed, which lives in this repository and is
+# not on PyPI. Listing it here, by path, lets pip resolve the app's
+# dependency on it locally in the same install — `pip install -e .` on its
+# own would go looking for it on PyPI and fail.
+-e ./packages/gtfs-multifeed
+-e .[dev]

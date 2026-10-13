@@ -309,3 +309,41 @@ def test_nearby_stops_works_on_merged_feeds() -> None:
     nearby = merged.nearby_stops(lat=37.0950, lng=140.0010, radius_m=100)
 
     assert [stop["stop_id"] for stop in nearby] == ["nasu:stop_yumoto"]
+
+
+def test_service_period_spans_calendar_and_added_dates() -> None:
+    engine = GTFSEngine(FIXTURE_DIR)
+
+    # calendar.txt runs Aug 1-31; calendar_dates.txt adds Aug 22, inside it.
+    assert engine.service_period() == (date(2026, 8, 1), date(2026, 8, 31))
+
+
+def test_service_period_covers_every_merged_feed() -> None:
+    merged = GTFSEngine.from_feeds({"a": FIXTURE_DIR, "b": OTHER_FIXTURE_DIR})
+    start, end = merged.service_period()
+
+    for single in (GTFSEngine(FIXTURE_DIR), GTFSEngine(OTHER_FIXTURE_DIR)):
+        own_start, own_end = single.service_period()
+        assert start <= own_start and own_end <= end
+
+
+def test_service_periods_reports_each_feed_separately() -> None:
+    merged = GTFSEngine.from_feeds({"a": FIXTURE_DIR, "b": OTHER_FIXTURE_DIR})
+
+    assert merged.service_periods() == {
+        "a": GTFSEngine(FIXTURE_DIR).service_period(),
+        "b": GTFSEngine(OTHER_FIXTURE_DIR).service_period(),
+    }
+
+
+def test_single_feed_reports_under_its_directory_name() -> None:
+    assert list(GTFSEngine(FIXTURE_DIR).service_periods()) == ["minimal_gtfs"]
+
+
+def test_feeds_not_covering_names_only_the_expired_feeds() -> None:
+    engine = GTFSEngine(FIXTURE_DIR)
+
+    assert engine.feeds_not_covering("2026-08-17") == {}
+    assert engine.feeds_not_covering("2026-09-01") == {
+        "minimal_gtfs": (date(2026, 8, 1), date(2026, 8, 31))
+    }

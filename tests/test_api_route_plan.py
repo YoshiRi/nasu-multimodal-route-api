@@ -191,3 +191,19 @@ def test_route_plan_rejects_empty_target_list() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_route_plan_names_a_date_outside_the_timetable() -> None:
+    response = client.post(
+        "/plan/route-plan",
+        json={
+            "base_location_id": "station_nasushiobara",
+            "target_spot_ids": [{"spot_id": "spot_nasu_ropeway"}],
+            "departure_time": "10:00",
+            "departure_date": "2030-01-07",
+        },
+    )
+
+    body = response.json()
+    assert body["status"] == "error"
+    assert "有効期間外" in body["ai_hint"]

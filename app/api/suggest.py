@@ -4,12 +4,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from gtfs_multifeed import GTFSEngine, parse_gtfs_time_to_minutes
 
 from app.api.deps import get_gtfs_engine, get_spot_repository
+from app.core.config import Settings, get_settings
 from app.models.errors import ErrorResponse
 from app.models.suggest import (
     SuggestedItinerary,
     SuggestedStopResponse,
     SuggestRequest,
     SuggestResponse,
+)
+from app.services.service_calendar import (
+    FIXTURE_GTFS_HINT,
+    no_service_hint,
+    partial_coverage_note,
+    with_note,
 )
 from app.services.spot_repository import SpotRepository
 from app.services.suggester import (
@@ -51,6 +58,7 @@ def post_suggest(
     request: SuggestRequest,
     engine: GTFSEngine = Depends(get_gtfs_engine),
     spots: SpotRepository = Depends(get_spot_repository),
+    settings: Settings = Depends(get_settings),
 ) -> SuggestResponse:
     try:
         candidates = suggest_itineraries(
@@ -74,29 +82,37 @@ def post_suggest(
 
     base = spots.get(request.base_location_id)
     destination = spots.get(request.destination_spot_id)
+    coverage_note = partial_coverage_note(engine, request.departure_date)
     if not candidates:
+        if settings.using_fixture_gtfs:
+            return SuggestResponse(
+                status="error", ai_hint=FIXTURE_GTFS_HINT, candidates=[]
+            )
+        no_service = no_service_hint(engine, request.departure_date)
+        if no_service:
+            return SuggestResponse(status="error", ai_hint=no_service, candidates=[])
         return SuggestResponse(
             status="error",
-            ai_hint=(
+            ai_hint=with_note(coverage_note, failed=True, hint=(
                 f"{request.arrive_by}までに{destination.name}へ戻れる行程が"
                 "見つかりませんでした。訪問地の数を減らすか、滞在時間を短くするか、"
                 "出発を早めるか、タグの条件を広げるようユーザーに提案してください。"
                 + ("" if request.max_taxi_legs else
                    " max_taxi_legs に1を指定すると、バスが繋がらない区間を"
                    "タクシーで補った場合に成立するかも確認できます。")
-            ),
+            )),
             candidates=[],
         )
 
     summaries = "／".join(describe(candidate, destination) for candidate in candidates)
     return SuggestResponse(
         status="success",
-        ai_hint=(
+        ai_hint=with_note(coverage_note, (
             f"{len(candidates)}件の候補が見つかりました: {summaries}。"
             "時刻は概算です。ユーザーに違いを示して選んでもらい、選ばれた候補の "
             "spot_ids に destination_spot_id を足して POST /plan/route-plan "
             "を呼ぶと、実際の経路と正確な時刻が入った行程になります。"
-        ),
+        )),
         candidates=[
             _to_response(candidate, request.departure_time, base, destination)
             for candidate in candidates

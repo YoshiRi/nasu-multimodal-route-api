@@ -38,3 +38,10 @@ FEEDS: list[FeedConfig] = [
         api_key_env_var="KANTO_BUS_GTFS_API_KEY",
     ),
 ]
+
+# How each feed is named to a person reading an ai_hint.
+FEED_LABELS: dict[str, str] = {
+    "nasushiobara": "那須塩原市",
+    "nasutown": "那須町",
+    "kanto_auto": "関東自動車",
+}

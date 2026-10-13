@@ -26,16 +26,26 @@ class Settings:
     # (unprefixed IDs); more than one is merged via GTFSEngine.from_feeds().
     gtfs_feeds: dict[str, Path]
     spots_file: Path
+    # True when nothing was found under data/gtfs/ and the tiny test feed
+    # was loaded instead. The API still answers, but it knows only a handful
+    # of made-up stops, so plans for real Nasu spots come back empty.
+    using_fixture_gtfs: bool = False
 
 
 @lru_cache
 def get_settings() -> Settings:
     override = os.environ.get("GTFS_DIR")
-    gtfs_feeds = (
-        {"default": Path(override)}
-        if override
-        else discover_gtfs_feeds(GTFS_DATA_ROOT) or {"default": DEFAULT_GTFS_DIR}
-    )
+    discovered = {} if override else discover_gtfs_feeds(GTFS_DATA_ROOT)
+    if override:
+        gtfs_feeds = {"default": Path(override)}
+    elif discovered:
+        gtfs_feeds = discovered
+    else:
+        gtfs_feeds = {"default": DEFAULT_GTFS_DIR}
     spots_file = Path(os.environ.get("SPOTS_FILE", str(DEFAULT_SPOTS_FILE)))
 
-    return Settings(gtfs_feeds=gtfs_feeds, spots_file=spots_file)
+    return Settings(
+        gtfs_feeds=gtfs_feeds,
+        spots_file=spots_file,
+        using_fixture_gtfs=not override and not discovered,
+    )

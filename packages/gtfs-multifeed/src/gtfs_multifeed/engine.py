@@ -139,6 +139,9 @@ class GTFSEngine:
 
         merged = cls.__new__(cls)
         merged.gtfs_dir = None
+        merged._feed_periods = {
+            feed_name: engine.service_period() for feed_name, engine in engines.items()
+        }
         for table_name in (
             "stops", "routes", "trips", "stop_times", "calendar", "calendar_dates", "shapes"
         ):
@@ -731,6 +734,54 @@ class GTFSEngine:
             active_ids.difference_update(removed["service_id"])
 
         return active_ids
+
+    def service_period(self) -> tuple[date, date] | None:
+        """Return the first and last dates the timetable says anything about.
+
+        Spans calendar.txt ranges and dates added in calendar_dates.txt,
+        across every merged feed. None when the feed carries no calendar at
+        all (every trip then runs every day). Use it to tell "no buses that
+        day" apart from "the timetable doesn't cover that day yet" — they
+        need different fixes.
+        """
+
+        dates: list[str] = []
+        if not self.calendar.empty:
+            dates += [self.calendar["start_date"].min(), self.calendar["end_date"].max()]
+        if not self.calendar_dates.empty:
+            added = self.calendar_dates[self.calendar_dates["exception_type"] == "1"]
+            if not added.empty:
+                dates += [added["date"].min(), added["date"].max()]
+        if not dates:
+            return None
+        return parse_service_date(min(dates)), parse_service_date(max(dates))
+
+    def service_periods(self) -> dict[str, tuple[date, date] | None]:
+        """Return service_period() for each feed, keyed by feed name.
+
+        Feeds published by different operators expire on different dates,
+        so a merged engine can cover a day for one operator and silently
+        have nothing for another — the merged service_period() alone hides
+        that. A single-feed engine reports under its directory name.
+        """
+
+        feed_periods = getattr(self, "_feed_periods", None)
+        if feed_periods is not None:
+            return dict(feed_periods)
+        return {self.gtfs_dir.name: self.service_period()}
+
+    def feeds_not_covering(self, service_date: str | date) -> dict[str, tuple[date, date]]:
+        """Return the feeds whose timetable period excludes service_date.
+
+        Feeds without a calendar run every day and are never reported.
+        """
+
+        day = parse_service_date(service_date)
+        return {
+            feed_name: period
+            for feed_name, period in self.service_periods().items()
+            if period is not None and not period[0] <= day <= period[1]
+        }
 
     def _validate_gtfs_dir(self) -> None:
         if not self.gtfs_dir.exists():

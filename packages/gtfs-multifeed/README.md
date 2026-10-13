@@ -87,6 +87,8 @@ engine.stop_info("stop_a")                                   # name + coordinate
 engine.route_shapes()                                        # polyline per shape_id
 engine.bus_leg_path(trip_id, origin_stop_id, dest_stop_id)   # ride segment only
 engine.active_service_ids("2026-08-17")
+engine.service_periods()             # {feed_name: (first_date, last_date)}
+engine.feeds_not_covering("2027-05-01")  # feeds whose timetable misses that day
 ```
 
 A journey comes back as `{"legs": [...], "transfers": [...],
@@ -98,6 +100,12 @@ Transfer walking time is estimated from straight-line distance inflated by a
 detour factor, and floored at a couple of minutes — a bus will not wait.
 Building the graph is fast enough to not need caching strategy: 3,164 stops
 (5M pairs) took 0.09s, and the result is cached per radius anyway.
+
+Feeds from different operators expire on different dates, so a merged
+engine can have buses from one operator on a given day and silently none
+from another. An empty search result alone can't tell "no bus fits" from
+"no timetable for that day"; `feeds_not_covering()` can, so callers can
+tell their users which one happened.
 
 `nearby_stops()` is vectorized over cached coordinate arrays — route
 planners call it once per endpoint of every leg they consider, so it is

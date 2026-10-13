@@ -222,3 +222,16 @@ html, body {
   font-size: 12px;
   cursor: pointer;
 }
+
+#data-warnings {
+  background: #fff4e5;
+  border: 1px solid #f0a040;
+  border-radius: 4px;
+  color: #7a4100;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+#data-warnings p {
+  margin: 0 0 4px;
+}

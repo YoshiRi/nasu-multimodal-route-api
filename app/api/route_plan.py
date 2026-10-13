@@ -3,10 +3,17 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_gtfs_engine, get_spot_repository
+from app.core.config import Settings, get_settings
 from app.models.errors import ErrorResponse
 from app.models.route_plan import RoutePlanRequest, RoutePlanResponse
 from gtfs_multifeed import GTFSEngine
 from app.services.route_planner import RoutePlanInputError, build_route_plan
+from app.services.service_calendar import (
+    FIXTURE_GTFS_HINT,
+    no_service_hint,
+    partial_coverage_note,
+    with_note,
+)
 from app.services.spot_repository import SpotRepository
 
 router = APIRouter(prefix="/plan", tags=["plan"])
@@ -32,8 +39,26 @@ async def post_route_plan(
     request: RoutePlanRequest,
     engine: GTFSEngine = Depends(get_gtfs_engine),
     spots: SpotRepository = Depends(get_spot_repository),
+    settings: Settings = Depends(get_settings),
 ) -> RoutePlanResponse:
     try:
-        return await build_route_plan(request, engine, spots)
+        response = await build_route_plan(request, engine, spots)
     except RoutePlanInputError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # The planner's own hints assume the timetable is fine and the request
+    # is what needs changing. When the data is the problem, say so instead.
+    if response.status == "error":
+        if settings.using_fixture_gtfs:
+            response.ai_hint = FIXTURE_GTFS_HINT
+            return response
+        no_service = no_service_hint(engine, request.departure_date)
+        if no_service:
+            response.ai_hint = no_service
+            return response
+    response.ai_hint = with_note(
+        partial_coverage_note(engine, request.departure_date),
+        response.ai_hint,
+        failed=response.status == "error",
+    )
+    return response
