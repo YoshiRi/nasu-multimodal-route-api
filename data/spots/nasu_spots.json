@@ -16,7 +16,12 @@
     "tags": [
       "温泉",
       "史跡"
-    ]
+    ],
+    "dwell_minutes": 90,
+    "hours": {
+      "always_open": true,
+      "note": "温泉街・共同浴場の各施設の営業時間は別途"
+    }
   },
   {
     "spot_id": "spot_nasu_ropeway",
@@ -26,7 +31,23 @@
     "tags": [
       "登山",
       "景観"
-    ]
+    ],
+    "dwell_minutes": 90,
+    "hours": {
+      "open": "08:30",
+      "close": "16:30",
+      "last_entry": "16:00",
+      "seasons": [
+        {
+          "from": "12-01",
+          "to": "03-15",
+          "closed": true
+        }
+      ],
+      "source": "https://rurubu.jp/andmore/spot/80007276",
+      "checked": "2026-10-13",
+      "note": "上り最終16:00。冬季運休の期間は情報源で食い違う（11/15頃〜/12月中旬〜、3月中旬〜再開）。荒天時運休"
+    }
   },
   {
     "spot_id": "spot_minamigaoka",
@@ -37,7 +58,23 @@
       "牧場",
       "動物",
       "グルメ"
-    ]
+    ],
+    "dwell_minutes": 90,
+    "hours": {
+      "open": "08:00",
+      "close": "17:30",
+      "seasons": [
+        {
+          "from": "12-01",
+          "to": "03-31",
+          "open": "09:00",
+          "close": "16:30"
+        }
+      ],
+      "source": "https://www.walkerplus.com/spot/ar0309s07573/map.html",
+      "checked": "2026-10-13",
+      "note": "年中無休。冬季時間は2024-25年度の例"
+    }
   },
   {
     "spot_id": "spot_safari",
@@ -46,7 +83,19 @@
     "lng": 140.0157,
     "tags": [
       "動物"
-    ]
+    ],
+    "dwell_minutes": 150,
+    "hours": {
+      "open": "09:30",
+      "close": "16:30",
+      "last_entry": "15:45",
+      "closed_weekdays": [
+        "thu"
+      ],
+      "source": "https://rurubu.jp/andmore/spot/80007288",
+      "checked": "2026-10-13",
+      "note": "木曜定休は季節により変動。閉園17:00とする情報源もある"
+    }
   },
   {
     "spot_id": "spot_yuainomori",
@@ -56,7 +105,8 @@
     "tags": [
       "ショッピング",
       "グルメ"
-    ]
+    ],
+    "dwell_minutes": 40
   },
   {
     "spot_id": "spot_animal_kingdom",
@@ -65,7 +115,26 @@
     "lng": 140.0611,
     "tags": [
       "動物"
-    ]
+    ],
+    "dwell_minutes": 180,
+    "hours": {
+      "open": "10:00",
+      "close": "16:30",
+      "closed_weekdays": [
+        "wed"
+      ],
+      "seasons": [
+        {
+          "from": "12-15",
+          "to": "03-15",
+          "open": "10:00",
+          "close": "16:00"
+        }
+      ],
+      "source": "https://www.walkerplus.com/spot/ar0309s14684/data.html",
+      "checked": "2026-10-13",
+      "note": "平日の時間。土日祝は9:00〜17:00。水曜定休だが春休み・GW・夏休み・祝日は営業。冬季は王国タウンのみ"
+    }
   },
   {
     "spot_id": "spot_rindoko",
@@ -76,7 +145,22 @@
       "牧場",
       "動物",
       "遊園地"
-    ]
+    ],
+    "dwell_minutes": 180,
+    "hours": {
+      "open": "09:30",
+      "close": "17:00",
+      "seasons": [
+        {
+          "from": "01-12",
+          "to": "03-05",
+          "closed": true
+        }
+      ],
+      "source": "https://summer.walkerplus.com/odekake/detail/ar0309s07574/data.html",
+      "checked": "2026-10-13",
+      "note": "2026年の営業期間は3/6〜2027/1/11。冬季休園中も土日祝の特別営業あり"
+    }
   },
   {
     "spot_id": "spot_highland_park",
@@ -85,7 +169,22 @@
     "lng": 139.9675,
     "tags": [
       "遊園地"
-    ]
+    ],
+    "dwell_minutes": 240,
+    "hours": {
+      "open": "09:30",
+      "close": "17:00",
+      "seasons": [
+        {
+          "from": "01-15",
+          "to": "02-28",
+          "closed": true
+        }
+      ],
+      "source": "https://www.navitime.co.jp/category/01/09/",
+      "checked": "2026-10-13",
+      "note": "不定休あり。冬季休園中の特別営業あり。営業カレンダーを要確認"
+    }
   },
   {
     "spot_id": "spot_stained_glass",
@@ -94,7 +193,18 @@
     "lng": 140.0211,
     "tags": [
       "美術館"
-    ]
+    ],
+    "dwell_minutes": 60,
+    "hours": {
+      "open": "09:30",
+      "close": "16:30",
+      "closed_weekdays": [
+        "wed"
+      ],
+      "source": "https://www.walkerplus.com/spot/ar0309s75625/data.html",
+      "checked": "2026-10-13",
+      "note": "祝日は開館。閉館17:00とする情報源もある"
+    }
   },
   {
     "spot_id": "spot_teddy_bear",
@@ -103,7 +213,16 @@
     "lng": 140.0381,
     "tags": [
       "美術館"
-    ]
+    ],
+    "dwell_minutes": 60,
+    "hours": {
+      "open": "09:30",
+      "close": "17:00",
+      "last_entry": "16:30",
+      "source": "https://rurubu.jp/andmore/spot/80007286",
+      "checked": "2026-10-13",
+      "note": "2・3・6・12月の第2火曜と2月第2水曜は休館（祝日は開館）— 未反映"
+    }
   },
   {
     "spot_id": "spot_asian_bazaar",
@@ -112,7 +231,15 @@
     "lng": 140.0102,
     "tags": [
       "ショッピング"
-    ]
+    ],
+    "dwell_minutes": 45,
+    "hours": {
+      "open": "10:00",
+      "close": "17:00",
+      "source": "https://www.yukoyuko.net/onsen/spot/s0000490",
+      "checked": "2026-10-13",
+      "note": "ショップの時間。レストランは11:00〜15:30LO"
+    }
   },
   {
     "spot_id": "spot_cheese_garden",
@@ -122,7 +249,15 @@
     "tags": [
       "グルメ",
       "ショッピング"
-    ]
+    ],
+    "dwell_minutes": 40,
+    "hours": {
+      "open": "09:00",
+      "close": "18:00",
+      "source": "https://www.mapple.net/region/g06010402_s-situation=senior/spot/",
+      "checked": "2026-10-13",
+      "note": "時期により異なる"
+    }
   },
   {
     "spot_id": "spot_shozo_cafe",
@@ -131,7 +266,15 @@
     "lng": 140.0195,
     "tags": [
       "グルメ"
-    ]
+    ],
+    "dwell_minutes": 60,
+    "hours": {
+      "open": "10:00",
+      "close": "17:00",
+      "source": "https://tochinavi.net/spot/home/?id=1483",
+      "checked": "2026-10-13",
+      "note": "不定休。情報は2023年時点"
+    }
   },
   {
     "spot_id": "spot_sesshoseki",
@@ -141,7 +284,11 @@
     "tags": [
       "史跡",
       "景観"
-    ]
+    ],
+    "dwell_minutes": 30,
+    "hours": {
+      "always_open": true
+    }
   },
   {
     "spot_id": "spot_heiseinomori",
@@ -151,7 +298,18 @@
     "tags": [
       "自然",
       "登山"
-    ]
+    ],
+    "dwell_minutes": 120,
+    "hours": {
+      "open": "09:00",
+      "close": "17:00",
+      "closed_weekdays": [
+        "wed"
+      ],
+      "source": "https://www.env.go.jp/press/13510.html",
+      "checked": "2026-10-13",
+      "note": "フィールドセンターの時間（2011年開園時の発表）。水曜休（祝日は翌日）"
+    }
   },
   {
     "spot_id": "spot_itamuro_nature_center",
@@ -160,7 +318,15 @@
     "lng": 139.92301417823316,
     "tags": [
       "自然"
-    ]
+    ],
+    "dwell_minutes": 45,
+    "hours": {
+      "open": "10:00",
+      "close": "15:00",
+      "source": "https://tochinavi.net/spot/home/?id=17328",
+      "checked": "2026-10-13",
+      "note": "毎月第4水曜・年末年始休館 — 未反映。情報は2018年時点"
+    }
   },
   {
     "spot_id": "spot_itamuro_kenkounoyu",
@@ -169,7 +335,8 @@
     "lng": 139.92342792110807,
     "tags": [
       "温泉"
-    ]
+    ],
+    "dwell_minutes": 90
   },
   {
     "spot_id": "spot_numappara_wetland",
@@ -180,7 +347,14 @@
       "自然",
       "登山",
       "景観"
-    ]
+    ],
+    "dwell_minutes": 120,
+    "hours": {
+      "always_open": true,
+      "source": "https://www.env.go.jp/nature/nationalparks/list/nikko/course/08/",
+      "checked": "2026-10-13",
+      "note": "冬季（12月上旬〜4月下旬頃）は駐車場までの道路が閉鎖 — 冬季は訪問不可として扱う"
+    }
   },
   {
     "spot_id": "spot_otome_falls",
@@ -190,7 +364,11 @@
     "tags": [
       "自然",
       "景観"
-    ]
+    ],
+    "dwell_minutes": 20,
+    "hours": {
+      "always_open": true
+    }
   },
   {
     "spot_id": "spot_kinomata_valley",
@@ -200,7 +378,11 @@
     "tags": [
       "自然",
       "景観"
-    ]
+    ],
+    "dwell_minutes": 60,
+    "hours": {
+      "always_open": true
+    }
   },
   {
     "spot_id": "spot_miyama_lake",
@@ -210,7 +392,11 @@
     "tags": [
       "自然",
       "景観"
-    ]
+    ],
+    "dwell_minutes": 30,
+    "hours": {
+      "always_open": true
+    }
   },
   {
     "spot_id": "spot_miyama_park",
@@ -220,7 +406,11 @@
     "tags": [
       "自然",
       "登山"
-    ]
+    ],
+    "dwell_minutes": 60,
+    "hours": {
+      "always_open": true
+    }
   },
   {
     "spot_id": "spot_nasuno_zero_point",
@@ -230,7 +420,11 @@
     "tags": [
       "自然",
       "景観"
-    ]
+    ],
+    "dwell_minutes": 20,
+    "hours": {
+      "always_open": true
+    }
   },
   {
     "spot_id": "spot_kagoiwa_shrine",
@@ -239,7 +433,11 @@
     "lng": 139.928491273019,
     "tags": [
       "神社仏閣"
-    ]
+    ],
+    "dwell_minutes": 30,
+    "hours": {
+      "always_open": true
+    }
   },
   {
     "spot_id": "spot_bansui_bridge",
@@ -248,7 +446,11 @@
     "lng": 140.0614825418265,
     "tags": [
       "景観"
-    ]
+    ],
+    "dwell_minutes": 15,
+    "hours": {
+      "always_open": true
+    }
   },
   {
     "spot_id": "spot_rindou_bridge",
@@ -257,7 +459,11 @@
     "lng": 140.01392529279767,
     "tags": [
       "景観"
-    ]
+    ],
+    "dwell_minutes": 15,
+    "hours": {
+      "always_open": true
+    }
   },
   {
     "spot_id": "spot_nasu_kogen_bridge",
@@ -266,7 +472,11 @@
     "lng": 139.99389313038145,
     "tags": [
       "景観"
-    ]
+    ],
+    "dwell_minutes": 15,
+    "hours": {
+      "always_open": true
+    }
   },
   {
     "spot_id": "spot_namikiri_fudoson",
@@ -275,7 +485,11 @@
     "lng": 140.0216583,
     "tags": [
       "神社仏閣"
-    ]
+    ],
+    "dwell_minutes": 20,
+    "hours": {
+      "always_open": true
+    }
   },
   {
     "spot_id": "spot_hotel_epinard",

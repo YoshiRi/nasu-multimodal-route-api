@@ -4,9 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-DEFAULT_SUGGESTION_DWELL_MINUTES = 60
-
-
 class SuggestRequest(BaseModel):
     base_location_id: str = Field(
         description="Spot ID the trip starts from.",
@@ -51,11 +48,15 @@ class SuggestRequest(BaseModel):
         description="Spot IDs every candidate must contain.",
         examples=[["spot_minamigaoka"]],
     )
-    dwell_minutes: int = Field(
-        DEFAULT_SUGGESTION_DWELL_MINUTES,
+    dwell_minutes: int | None = Field(
+        None,
         gt=0,
-        description="Time to spend at each suggested spot.",
-        examples=[60],
+        description=(
+            "Time to spend at every suggested spot. Leave unset to use each "
+            "spot's own typical stay (a safari park gets longer than a "
+            "bridge; see dwell_minutes in GET /spots), falling back to 60."
+        ),
+        examples=[None],
     )
     max_candidates: int = Field(
         3, ge=1, le=10, description="How many candidates to return.", examples=[3]
@@ -93,6 +94,22 @@ class SuggestedStopResponse(BaseModel):
     )
     arrival_time: str = Field(description='Estimated arrival, "HH:MM".')
     departure_time: str = Field(description='Estimated departure after the stay, "HH:MM".')
+    wait_minutes: int = Field(
+        description="Minutes spent waiting for it to open, included before the stay."
+    )
+    stay_minutes: int = Field(
+        description=(
+            "Length of the stay. Pass it as dwell_minutes for this spot "
+            "when building the candidate with POST /plan/route-plan."
+        )
+    )
+    opening_hours: str | None = Field(
+        description=(
+            "That day's hours as a short Japanese summary, or null when "
+            "they were never checked. Hand-collected and approximate: "
+            "worth confirming with the venue before going."
+        )
+    )
 
 
 class SuggestedItinerary(BaseModel):

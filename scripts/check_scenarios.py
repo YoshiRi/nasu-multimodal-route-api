@@ -50,7 +50,8 @@ class Scenario:
     spot_count: int = 2
     tags: list[str] = field(default_factory=list)
     must_include: list[str] = field(default_factory=list)
-    dwell_minutes: int = 60
+    # None: each spot's own typical stay (a safari park isn't a bridge).
+    dwell_minutes: int | None = None
 
 
 def scenarios(date: str) -> list[Scenario]:
@@ -117,7 +118,8 @@ async def build_winner(scenario, candidate, spots, engine, date) -> None:
     request = RoutePlanRequest(
         base_location_id=scenario.base,
         target_spot_ids=[
-            *({"spot_id": stop.spot.spot_id, "dwell_minutes": scenario.dwell_minutes}
+            *({"spot_id": stop.spot.spot_id,
+               "dwell_minutes": stop.departure_minutes - stop.arrival_minutes - stop.wait_minutes}
               for stop in candidate.stops),
             {"spot_id": scenario.destination},
         ],

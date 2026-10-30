@@ -93,6 +93,8 @@ function addSpotToRoute(spot) {
     lat: spot.lat,
     lng: spot.lng,
     dwellMinutes: null,
+    // Shown as the placeholder: what happens when the box is left empty.
+    typicalDwellMinutes: spot.dwell_minutes ?? 60,
     requiredArrivalTime: "",
     required: true,
     settingsOpen: false,
@@ -297,7 +299,7 @@ function buildSpotSettingsForm(spot) {
   const dwellInput = document.createElement("input");
   dwellInput.type = "number";
   dwellInput.min = "1";
-  dwellInput.placeholder = "60";
+  dwellInput.placeholder = String(spot.typicalDwellMinutes ?? 60);
   dwellInput.value = spot.dwellMinutes ?? "";
   dwellInput.addEventListener("input", () => {
     const value = parseInt(dwellInput.value, 10);

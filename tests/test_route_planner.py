@@ -199,7 +199,7 @@ async def test_build_route_plan_uses_custom_dwell_minutes(
 
 
 @pytest.mark.anyio
-async def test_build_route_plan_defaults_dwell_minutes_when_omitted(
+async def test_build_route_plan_uses_the_spots_own_stay_when_omitted(
     engine: GTFSEngine, spots: SpotRepository
 ) -> None:
     request = RoutePlanRequest(
@@ -215,7 +215,9 @@ async def test_build_route_plan_defaults_dwell_minutes_when_omitted(
     response = await build_route_plan(request, engine, spots)
 
     stay_step = next(step for step in response.plans[0].steps if step.mode == "stay")
-    assert "60分" in stay_step.details
+    typical = spots.get("spot_nasu_ropeway").dwell_minutes
+    assert typical is not None
+    assert f"{typical}分" in stay_step.details
 
 
 @pytest.mark.anyio
@@ -281,7 +283,8 @@ async def test_build_route_plan_honors_required_arrival_time_on_round_trip_retur
     request = RoutePlanRequest(
         base_location_id="spot_nasu_yumoto_onsen",
         target_spot_ids=[
-            {"spot_id": "spot_nasu_ropeway"},
+            # The timings below assume an hour's stay, not the ropeway's own.
+            {"spot_id": "spot_nasu_ropeway", "dwell_minutes": 60},
             {"spot_id": "spot_nasu_yumoto_onsen", "required_arrival_time": "12:35"},
         ],
         departure_time="10:00",

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from gtfs_multifeed import GTFSEngine, parse_gtfs_time_to_minutes
+from gtfs_multifeed import GTFSEngine, parse_gtfs_time_to_minutes, parse_service_date
 
 from app.api.deps import get_gtfs_engine, get_spot_repository
 from app.core.config import Settings, get_settings
@@ -21,6 +21,7 @@ from app.services.service_calendar import (
 from app.services.spot_repository import SpotRepository
 from app.services.suggester import (
     Candidate,
+    RequiredSpotClosed,
     SuggestInputError,
     describe,
     estimate_taxi_fare_jpy,
@@ -79,6 +80,12 @@ def post_suggest(
         )
     except SuggestInputError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RequiredSpotClosed as exc:
+        return SuggestResponse(
+            status="error",
+            ai_hint=f"{exc} 別の日付にするか、must_include_spot_ids から外すようユーザーに提案してください。",
+            candidates=[],
+        )
 
     base = spots.get(request.base_location_id)
     destination = spots.get(request.destination_spot_id)
@@ -111,18 +118,23 @@ def post_suggest(
             f"{len(candidates)}件の候補が見つかりました: {summaries}。"
             "時刻は概算です。ユーザーに違いを示して選んでもらい、選ばれた候補の "
             "spot_ids に destination_spot_id を足して POST /plan/route-plan "
-            "を呼ぶと、実際の経路と正確な時刻が入った行程になります。"
+            "を呼ぶと、実際の経路と正確な時刻が入った行程になります"
+            "（各スポットの stay_minutes を dwell_minutes として渡してください）。"
+            "営業時間は手で集めた概算なので、確定前に施設へ確認するよう添えてください。"
         )),
         candidates=[
-            _to_response(candidate, request.departure_time, base, destination)
+            _to_response(
+                candidate, request.departure_time, request.departure_date, base, destination
+            )
             for candidate in candidates
         ],
     )
 
 
 def _to_response(
-    candidate: Candidate, departure_time: str, base, destination
+    candidate: Candidate, departure_time: str, departure_date: str, base, destination
 ) -> SuggestedItinerary:
+    day = parse_service_date(departure_date)
     return SuggestedItinerary(
         spot_ids=[stop.spot.spot_id for stop in candidate.stops],
         stops=[
@@ -135,6 +147,9 @@ def _to_response(
                 by_taxi=stop.by_taxi,
                 arrival_time=format_minutes(stop.arrival_minutes),
                 departure_time=format_minutes(stop.departure_minutes),
+                wait_minutes=stop.wait_minutes,
+                stay_minutes=stop.departure_minutes - stop.arrival_minutes - stop.wait_minutes,
+                opening_hours=stop.spot.hours.describe(day) if stop.spot.hours else None,
             )
             for stop in candidate.stops
         ],

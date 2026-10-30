@@ -33,7 +33,12 @@ A working proof of concept, honest about what it doesn't do:
   `optimize_visit_order: true` to have the intermediate stops reordered;
   it is a greedy pass plus a couple of swap rounds, not a guaranteed
   optimum, and it estimates walking times rather than routing them.
-- The spot master is 30 hand-collected places, not an exhaustive dataset.
+- The spot master is 31 hand-collected places, not an exhaustive dataset.
+- **Opening hours are approximate.** They were gathered by hand from
+  travel sites that often disagree, record only one daily window (the
+  narrower weekday one where weekends differ), and can't express rules
+  like "closed the second Tuesday of February" — those sit in each spot's
+  `note`. Answers say so; confirm with the venue before going.
 
 ## Setup
 
@@ -133,6 +138,10 @@ candidates still rank first. The allowance covers every taxi hop,
 including ones forced by a spot having no bus stop near it, so asking for
 zero really does mean zero.
 
+Each stop in a candidate reports `stay_minutes`, any `wait_minutes` for
+opening, and that day's `opening_hours`. Leave `dwell_minutes` unset to
+give each spot its own typical stay.
+
 Spots carry `tags` (牧場 / 登山 / 動物 / 温泉 / 美術館 …, see `GET /spots`);
 `tags` keeps only spots with at least one of them, and
 `must_include_spot_ids` pins particular places in regardless. Candidates
@@ -176,7 +185,7 @@ For a round trip, list `base_location_id` again as the final target (its
 
 Each target accepts:
 
-- `dwell_minutes` — how long to stay (default 60)
+- `dwell_minutes` — how long to stay (default: the spot's typical stay, else 60)
 - `required_arrival_time` — a fixed reservation/meeting time. Arriving early
   inserts a `wait` step; arriving late makes the plan infeasible rather than
   silently missing it.
@@ -193,8 +202,21 @@ that arrives soonest wins — picking the closest stop that merely *has* a
 bus cost 84 minutes per leg on average against real timetables, because the
 closest stop is often served by something that runs twice a day.
 
-Spots come from `data/spots/nasu_spots.json` (`spot_id`/`name`/`lat`/`lng`;
-override with `SPOTS_FILE`) — not GTFS `stop_id`s. The nearest usable GTFS
+Spots come from `data/spots/nasu_spots.json` (override with `SPOTS_FILE`) —
+not GTFS `stop_id`s. Besides `spot_id`/`name`/`lat`/`lng`/`tags`, a spot may
+carry:
+
+- `dwell_minutes` — its typical stay (サファリ 150, a bridge 15), used
+  whenever a request leaves the stay unset. Without one, 60.
+- `hours` — `open`/`close`/`last_entry`, `closed_weekdays`, and `seasons`
+  (month-day ranges that change the hours or close it, e.g. the ropeway in
+  winter), or `always_open` for outdoor places; plus `source`, `checked`
+  and `note`. No `hours` means *never checked*, which is never ruled out.
+
+Both planners honor the hours: a spot closed that day is never suggested,
+arriving early waits for opening (a `wait` step in route-plan), and a stay
+that can't finish before closing — or an arrival after last entry — is
+refused rather than quietly cut short. The nearest usable GTFS
 stop is resolved on the fly. Each step carries a `path` of `[lat, lng]`
 points: real road geometry from ORS for walking/taxi, the GTFS shape sliced to
 the ridden segment for bus.

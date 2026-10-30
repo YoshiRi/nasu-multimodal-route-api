@@ -296,3 +296,35 @@ def test_zero_taxi_budget_means_zero_taxis(spots, engine) -> None:
     for candidate in _suggest(spots, engine, **late, max_taxi_legs=0):
         assert candidate.taxi_legs == 0
         assert all(not stop.by_taxi for stop in candidate.stops)
+
+
+def test_taxi_branches_do_not_crowd_bus_ones_out_of_the_beam(
+    tmp_path: Path, engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Allowing a taxi must never lose an all-bus candidate.
+
+    A taxi hop usually lands sooner than the bus, so ranking the beam on
+    time alone fills it with taxi branches and prunes the bus ones — and
+    the final ranking, which puts all-bus first, never gets to see them.
+    Found on real data: allowing one taxi made the all-bus ropeway plans
+    vanish from the answer.
+    """
+
+    monkeypatch.setattr(suggester, "SUGGESTION_BEAM_WIDTH", 1)
+    # "x" has no bus stop within reach of it, ~3.6km east of the hub: a
+    # taxi gets there in ~20 minutes, while the 08:05 start misses the
+    # 08:00 bus and waits for the 08:30.
+    spots_file = tmp_path / "spots.json"
+    spots_file.write_text(json.dumps([
+        *SPOTS,
+        {"spot_id": "x", "name": "X Offroad", "lat": 36.0, "lng": 140.04, "tags": []},
+    ]), encoding="utf-8")
+    repo = SpotRepository(spots_file)
+
+    bus_only = _suggest(repo, engine, spot_count=1, departure_time="08:05")
+    with_taxi = _suggest(
+        repo, engine, spot_count=1, departure_time="08:05", max_taxi_legs=2
+    )
+
+    assert bus_only and bus_only[0].taxi_legs == 0
+    assert with_taxi and with_taxi[0].taxi_legs == 0

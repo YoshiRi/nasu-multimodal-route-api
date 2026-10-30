@@ -16,7 +16,7 @@ router = APIRouter(prefix="/spots", tags=["spots"])
     description="Return every spot in the currently loaded spot master.",
 )
 def list_spots(spots: SpotRepository = Depends(get_spot_repository)) -> list[SpotResponse]:
-    return [SpotResponse(**vars(spot)) for spot in spots.list_all()]
+    return [SpotResponse.from_spot(spot) for spot in spots.list_all()]
 
 
 @router.post(
@@ -36,4 +36,4 @@ def create_spot(
     spot = spots.add(
         name=request.name, lat=request.lat, lng=request.lng, tags=tuple(request.tags)
     )
-    return SpotResponse(**vars(spot))
+    return SpotResponse.from_spot(spot)

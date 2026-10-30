@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
+
+from app.services.spot_repository import Spot
 
 
 class SpotResponse(BaseModel):
@@ -13,6 +17,32 @@ class SpotResponse(BaseModel):
         description="Labels describing what kind of place this is.",
         examples=[["牧場", "動物"]],
     )
+    dwell_minutes: int | None = Field(
+        None,
+        description=(
+            "Typical length of a visit, used when a plan doesn't say how "
+            "long to stay. null means no estimate (60 is used)."
+        ),
+        examples=[150],
+    )
+    hours: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Opening hours: open/close/last_entry, closed_weekdays, seasons "
+            "(month-day ranges that change the hours or close it), or "
+            "always_open for outdoor places; with source, checked and note. "
+            "null means never checked — not 'always open'. Hand-collected "
+            "from travel sites and approximate."
+        ),
+    )
+
+    @classmethod
+    def from_spot(cls, spot: Spot) -> "SpotResponse":
+        return cls(
+            spot_id=spot.spot_id, name=spot.name, lat=spot.lat, lng=spot.lng,
+            tags=list(spot.tags), dwell_minutes=spot.dwell_minutes,
+            hours=spot.hours.to_json() if spot.hours else None,
+        )
 
 
 class CreateSpotRequest(BaseModel):

@@ -20,6 +20,7 @@ from math import ceil
 
 from gtfs_multifeed import GTFSEngine, haversine_distance_m, parse_gtfs_time_to_minutes
 
+from app.services.opening_hours import VisitRefused, is_closed_on, plan_visit
 from app.services.spot_repository import Spot, SpotNotFoundError, SpotRepository
 from app.services.travel_estimate import (
     LegCache,
@@ -57,6 +58,10 @@ class SuggestInputError(ValueError):
     """Raised for malformed requests (unknown spot_id, etc.) — maps to HTTP 4xx."""
 
 
+class RequiredSpotClosed(Exception):
+    """A must-include spot is closed that day; the message says which and when."""
+
+
 @dataclass(frozen=True)
 class SuggestedStop:
     spot: Spot
@@ -64,6 +69,8 @@ class SuggestedStop:
     departure_minutes: int
     # True when the only way to get here in time was a taxi.
     by_taxi: bool = False
+    # Minutes spent outside before it opened.
+    wait_minutes: int = 0
 
 
 @dataclass(frozen=True)
@@ -107,12 +114,17 @@ def suggest_itineraries(
     spot_count: int = 3,
     tags: list[str] | None = None,
     must_include_spot_ids: list[str] | None = None,
-    dwell_minutes: int = 60,
+    dwell_minutes: int | None = None,
     max_candidates: int = 3,
     max_transfers: int = 1,
     max_taxi_legs: int = 0,
 ) -> list[Candidate]:
-    """Return candidate itineraries, soonest arrival at the destination first."""
+    """Return candidate itineraries, soonest arrival at the destination first.
+
+    dwell_minutes applies to every stop when given; when None each spot
+    gets its own typical stay (Spot.stay_minutes). Spots closed on
+    departure_date are never suggested, and stays must fit their hours.
+    """
 
     try:
         base = spots.get(base_location_id)
@@ -121,9 +133,15 @@ def suggest_itineraries(
     except SpotNotFoundError as exc:
         raise SuggestInputError(f"Unknown spot_id: {exc}") from exc
 
+    for spot in required:
+        if is_closed_on(spot.hours, departure_date):
+            raise RequiredSpotClosed(
+                f"{spot.name}は{departure_date}は休業日です（営業情報は概算・要確認）。"
+            )
+
     depart_minutes = parse_gtfs_time_to_minutes(departure_time)
     deadline_minutes = parse_gtfs_time_to_minutes(arrive_by)
-    pool = _build_pool(spots, base, destination, tags, required)
+    pool = _build_pool(spots, base, destination, tags, required, departure_date)
     if not pool:
         return []
 
@@ -154,9 +172,15 @@ def _build_pool(
     destination: Spot,
     tags: list[str] | None,
     required: list[Spot],
+    departure_date: str,
 ) -> list[Spot]:
     excluded = {base.spot_id, destination.spot_id}
-    pool = [spot for spot in spots.list_all() if spot.spot_id not in excluded]
+    # Drop closed spots before cutting the pool down to size, or a day off
+    # would waste a slot that an open spot could have had.
+    pool = [
+        spot for spot in spots.list_all()
+        if spot.spot_id not in excluded and not is_closed_on(spot.hours, departure_date)
+    ]
 
     if tags:
         wanted = set(tags)
@@ -233,7 +257,7 @@ def _expand(
     engine: GTFSEngine,
     departure_date: str,
     deadline_minutes: int,
-    dwell_minutes: int,
+    dwell_minutes: int | None,
     max_transfers: int,
     cache: LegCache,
     required: list[Spot],
@@ -246,7 +270,8 @@ def _expand(
         for spot in pool:
             if spot.spot_id in visited:
                 continue
-            if _too_far(position, spot, partial.free_at_minutes + dwell_minutes, deadline_minutes):
+            stay = spot.stay_minutes(dwell_minutes)
+            if _too_far(position, spot, partial.free_at_minutes + stay, deadline_minutes):
                 continue
             reached = _reach(
                 position, spot, partial.free_at_minutes, partial.taxi_legs,
@@ -255,8 +280,12 @@ def _expand(
             if reached is None:
                 continue
             arrival, by_taxi = reached
+            try:
+                visit = plan_visit(spot.name, spot.hours, departure_date, arrival, stay)
+            except VisitRefused:
+                continue
             # No point going somewhere we are already too late to leave.
-            if arrival + dwell_minutes > deadline_minutes:
+            if visit.end_minutes > deadline_minutes:
                 continue
             grown.append(
                 _Partial(
@@ -265,25 +294,33 @@ def _expand(
                         SuggestedStop(
                             spot=spot,
                             arrival_minutes=arrival,
-                            departure_minutes=arrival + dwell_minutes,
+                            departure_minutes=visit.end_minutes,
                             by_taxi=by_taxi,
+                            wait_minutes=visit.start_minutes - arrival,
                         ),
                     ),
-                    free_at_minutes=arrival + dwell_minutes,
+                    free_at_minutes=visit.end_minutes,
                     taxi_legs=partial.taxi_legs + (1 if by_taxi else 0),
                 )
             )
 
-    # Rank on what is still missing first, then on time. Sorting on time
-    # alone drops every branch through a required spot the moment that spot
-    # is further out than the alternatives, and the must-include check at
-    # the end is then left with nothing to accept.
+    # Rank on what is still missing first, then on taxis used, then on
+    # time. Sorting on time alone drops every branch through a required
+    # spot the moment that spot is further out than the alternatives, and
+    # the must-include check at the end is then left with nothing to
+    # accept. Taxis likewise: a taxi hop usually lands sooner than the bus,
+    # so time alone fills the beam with taxi branches, and the all-bus
+    # candidates that _rank would have put first never reach it.
     required_ids = {spot.spot_id for spot in required}
 
     def still_missing(partial: _Partial) -> int:
         return len(required_ids - {stop.spot.spot_id for stop in partial.stops})
 
-    grown.sort(key=lambda partial: (still_missing(partial), partial.free_at_minutes))
+    grown.sort(
+        key=lambda partial: (
+            still_missing(partial), partial.taxi_legs, partial.free_at_minutes
+        )
+    )
     return grown[:SUGGESTION_BEAM_WIDTH]
 
 

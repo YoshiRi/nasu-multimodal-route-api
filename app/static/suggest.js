@@ -79,6 +79,13 @@ function renderMiniMap(container, request, candidate) {
   map.fitBounds(L.latLngBounds(latLngs), { padding: [22, 22] });
 }
 
+function arrivalNote(stop) {
+  const parts = [stop.tags.join("・")];
+  if (stop.wait_minutes > 0) parts.push(`開館まで${stop.wait_minutes}分待ち`);
+  parts.push(stop.opening_hours ? `営業 ${stop.opening_hours}` : "営業時間未確認");
+  return parts.filter(Boolean).join(" / ");
+}
+
 function renderSchedule(candidate, request) {
   const table = document.createElement("table");
   table.className = "schedule";
@@ -86,8 +93,8 @@ function renderSchedule(candidate, request) {
   const rows = [
     [request.departure_time, request.base_name, "出発"],
     ...candidate.stops.flatMap((stop) => [
-      [stop.arrival_time, stop.name, `${stop.tags.join("・")}`],
-      [stop.departure_time, stop.name, "出発"],
+      [stop.arrival_time, stop.name, arrivalNote(stop)],
+      [stop.departure_time, stop.name, `出発（滞在${stop.stay_minutes}分）`],
     ]),
     [candidate.destination_arrival_time, request.destination_name, "到着"],
   ];
@@ -113,9 +120,15 @@ async function buildFullPlan(candidate, request, button) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         base_location_id: request.base_location_id,
-        target_spot_ids: [...candidate.spot_ids, request.destination_spot_id].map(
-          (spot_id) => ({ spot_id }),
-        ),
+        // Carry each stop's stay over, so the full plan stays as long
+        // as the candidate it was chosen from.
+        target_spot_ids: [
+          ...candidate.stops.map((stop) => ({
+            spot_id: stop.spot_id,
+            dwell_minutes: stop.stay_minutes,
+          })),
+          { spot_id: request.destination_spot_id },
+        ],
         departure_time: request.departure_time,
         departure_date: request.departure_date,
       }),

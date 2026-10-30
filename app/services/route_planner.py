@@ -7,12 +7,12 @@ from math import inf
 from gtfs_multifeed import GTFSEngine, haversine_distance_m, parse_gtfs_time_to_minutes
 
 from app.models.route_plan import (
-    DEFAULT_DWELL_MINUTES,
     ItineraryStep,
     Plan,
     RoutePlanRequest,
     RoutePlanResponse,
 )
+from app.services.opening_hours import VisitRefused, plan_visit
 from app.services.ors_client import OrsRequestError, get_driving_route, get_walking_route
 from app.services.spot_repository import Spot, SpotNotFoundError, SpotRepository
 from app.services.travel_estimate import (
@@ -95,10 +95,7 @@ async def build_route_plan(
                 return RoutePlanResponse(status="error", ai_hint=hint, plans=[])
 
             targets = [spot for spot, _ in remaining]
-            dwell_minutes = [
-                target.dwell_minutes if target.dwell_minutes is not None else DEFAULT_DWELL_MINUTES
-                for _, target in remaining
-            ]
+            dwell_minutes = [spot.stay_minutes(target.dwell_minutes) for spot, target in remaining]
             required_arrival_minutes = [
                 parse_gtfs_time_to_minutes(target.required_arrival_time)
                 if target.required_arrival_time is not None
@@ -189,6 +186,20 @@ async def _compute_plan(
         # there's nothing to wait out before moving on.
         is_last_leg = index == len(waypoints) - 2
         if not is_last_leg:
+            try:
+                visit = plan_visit(
+                    destination.name, destination.hours, request.departure_date,
+                    cursor.minutes, dwell_minutes[index],
+                )
+            except VisitRefused as refused:
+                return _closed_response(str(refused))
+            if visit.start_minutes > cursor.minutes:
+                wait_step, cursor.minutes = _wait_step(
+                    destination, visit.start_minutes, cursor.minutes, step_order,
+                    reason="開館",
+                )
+                steps.append(wait_step)
+                step_order += 1
             stay_step, cursor.minutes = _stay_step(
                 destination, dwell_minutes[index], cursor.minutes, step_order
             )
@@ -535,7 +546,11 @@ def _greedy_order(
         arrival, index = best
         spot, target = pending.pop(index)
         ordered.append((spot, target))
-        cursor = arrival + _dwell_of(target)
+        # A spot it can't stay at still gets placed; _improve_order and the
+        # real build sort out whether the order works at all.
+        cursor = _visit_end(spot, target, arrival, request) or arrival + spot.stay_minutes(
+            target.dwell_minutes
+        )
         position = spot
 
     return ordered
@@ -593,15 +608,19 @@ def _finish_time(
     cursor = parse_gtfs_time_to_minutes(request.departure_time)
     position = base
 
-    for spot, target in [*order, last]:
+    for spot, target in order:
         arrival = _arrival_at(position, spot, target, cursor, request, engine, cache)
         if arrival is None:
             return None
-        cursor = arrival + _dwell_of(target)
+        end = _visit_end(spot, target, arrival, request)
+        if end is None:
+            return None
+        cursor = end
         position = spot
 
-    # cursor picked up the destination's dwell, which never happens.
-    return cursor - _dwell_of(last[1])
+    # No stay at the destination: the trip ends on arrival.
+    destination, target = last
+    return _arrival_at(position, destination, target, cursor, request, engine, cache)
 
 
 def _arrival_at(
@@ -638,8 +657,16 @@ def _arrival_at(
     return arrival
 
 
-def _dwell_of(target: object) -> int:
-    return target.dwell_minutes if target.dwell_minutes is not None else DEFAULT_DWELL_MINUTES
+def _visit_end(spot: Spot, target: object, arrival: int, request: RoutePlanRequest) -> int | None:
+    """When a stay arriving then would end, or None if its hours rule it out."""
+
+    try:
+        return plan_visit(
+            spot.name, spot.hours, request.departure_date, arrival,
+            spot.stay_minutes(target.dwell_minutes),
+        ).end_minutes
+    except VisitRefused:
+        return None
 
 
 async def _direct_step(
@@ -770,7 +797,8 @@ def _stay_step(
 
 
 def _wait_step(
-    spot: Spot, required_minutes: int, start_minutes: int, step_order: int
+    spot: Spot, required_minutes: int, start_minutes: int, step_order: int,
+    reason: str = "集合",
 ) -> tuple[ItineraryStep, int]:
     step = ItineraryStep(
         step_order=step_order,
@@ -780,7 +808,7 @@ def _wait_step(
         title=f"{spot.name}で待機",
         details=(
             f"{spot.name}に{_format_minutes(start_minutes)}到着。"
-            f"集合時刻{_format_minutes(required_minutes)}まで待機します。"
+            f"{reason}時刻{_format_minutes(required_minutes)}まで待機します。"
         ),
         from_lat=spot.lat,
         from_lng=spot.lng,
@@ -794,6 +822,14 @@ def _infeasible_response(num_targets: int) -> RoutePlanResponse:
     hint = (
         f"指定した時間内に{num_targets}件の訪問地を回れるバスが見つかりませんでした。"
         "訪問地の数を減らすか、出発時刻を早めるようユーザーに提案してください。"
+    )
+    return RoutePlanResponse(status="error", ai_hint=hint, plans=[])
+
+
+def _closed_response(reason: str) -> RoutePlanResponse:
+    hint = (
+        f"{reason}訪問順・日付・滞在時間（dwell_minutes）を見直すか、その訪問地を"
+        "外すようユーザーに提案してください。営業情報は手で集めた概算です。"
     )
     return RoutePlanResponse(status="error", ai_hint=hint, plans=[])
 
