@@ -373,6 +373,7 @@ routeSearchButton.addEventListener("click", async () => {
   }
 
   setStatus("ルートを検索中...");
+  const resultsTab = openPendingTab();
   try {
     const response = await fetch("/plan/route-plan", {
       method: "POST",
@@ -388,14 +389,16 @@ routeSearchButton.addEventListener("click", async () => {
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
+      resultsTab.cancel();
       setStatus(`ルート検索に失敗しました: ${body.detail || response.status}`);
       return;
     }
     const result = await response.json();
     localStorage.setItem("latest_route_plan", JSON.stringify(result));
-    window.open("results.html", "_blank");
+    resultsTab.show("results.html");
     setStatus(result.status === "success" ? "ルートが見つかりました" : `不成立: ${result.ai_hint}`);
   } catch (err) {
+    resultsTab.cancel();
     setStatus(`ルート検索に失敗しました: ${err}`);
   }
 });
@@ -459,6 +462,7 @@ document.getElementById("suggest-submit").addEventListener("click", async () => 
   const destinationSpot = spots.find((s) => s.spot_id === suggestDestinationSelect.value);
 
   setStatus("候補を探しています...");
+  const suggestTab = openPendingTab();
   try {
     const response = await fetch("/plan/suggest", {
       method: "POST",
@@ -476,6 +480,7 @@ document.getElementById("suggest-submit").addEventListener("click", async () => 
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
+      suggestTab.cancel();
       setStatus(`候補の取得に失敗しました: ${body.detail || response.status}`);
       return;
     }
@@ -499,13 +504,14 @@ document.getElementById("suggest-submit").addEventListener("click", async () => 
         },
       }),
     );
-    window.open("suggest.html", "_blank");
+    suggestTab.show("suggest.html");
     setStatus(
       result.status === "success"
         ? `${result.candidates.length}件の候補が見つかりました`
         : `候補なし: ${result.ai_hint}`,
     );
   } catch (err) {
+    suggestTab.cancel();
     setStatus(`候補の取得に失敗しました: ${err}`);
   }
 });

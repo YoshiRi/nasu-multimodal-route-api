@@ -39,6 +39,23 @@ A working proof of concept, honest about what it doesn't do:
   narrower weekday one where weekends differ), and can't express rules
   like "closed the second Tuesday of February" — those sit in each spot's
   `note`. Answers say so; confirm with the venue before going.
+- **Public holidays are not considered by opening hours.** A venue that
+  opens on a holiday falling on its usual closing day (e.g. Nasu Animal
+  Kingdom on a holiday Wednesday) is treated as closed. This errs toward
+  leaving a spot out, never toward sending someone to a locked gate. Bus
+  timetables are unaffected: holiday service comes from the GTFS calendar.
+- **Bus fares are not reported.** Plans give times and taxi estimates
+  only; the GTFS fare tables are not read.
+- **Tag filters apply to every suggested spot.** Asking for `["動物"]`
+  means every spot in a candidate carries that tag; "one animal spot plus
+  anything else" can't be expressed. Use `must_include_spot_ids` for that.
+- **The timetables expire.** The bundled feeds run until 2027-03-31
+  (那須塩原市, 那須町) and 2027-07-30 (関東自動車). After that, plans for
+  later dates say the data doesn't cover them; `GET /status` and the
+  debug UI warn 30 days ahead. Re-run `scripts/download_gtfs.py` when the
+  operators publish new feeds.
+- The debug UI is a developer tool, not an end-user product, and mixes
+  Japanese and English.
 
 ## Setup
 

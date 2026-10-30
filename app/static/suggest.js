@@ -118,6 +118,7 @@ async function buildFullPlan(candidate, request, button) {
   button.disabled = true;
   const original = button.textContent;
   button.textContent = "行程を作成中...";
+  const resultsTab = openPendingTab();
   try {
     const response = await fetch("/plan/route-plan", {
       method: "POST",
@@ -143,16 +144,18 @@ async function buildFullPlan(candidate, request, button) {
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
+      resultsTab.cancel();
       button.textContent = `失敗: ${body.detail || response.status}`;
       button.disabled = false;
       return;
     }
     const result = await response.json();
     localStorage.setItem("latest_route_plan", JSON.stringify(result));
-    window.open("results.html", "_blank");
+    resultsTab.show("results.html");
     button.textContent = result.status === "success" ? "詳細を開きました" : "行程が組めません";
     button.disabled = false;
   } catch (err) {
+    resultsTab.cancel();
     button.textContent = `失敗: ${err}`;
     button.disabled = false;
   }
