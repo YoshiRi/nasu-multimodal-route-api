@@ -119,7 +119,8 @@ def post_suggest(
             "時刻は概算です。ユーザーに違いを示して選んでもらい、選ばれた候補の "
             "spot_ids に destination_spot_id を足して POST /plan/route-plan "
             "を呼ぶと、実際の経路と正確な時刻が入った行程になります"
-            "（各スポットの stay_minutes を dwell_minutes として渡してください）。"
+            "（各スポットの stay_minutes を dwell_minutes、by_taxi を arrive_by_taxi "
+            "として渡し、destination_by_taxi は終点の arrive_by_taxi にしてください）。"
             "営業時間は手で集めた概算なので、確定前に施設へ確認するよう添えてください。"
         )),
         candidates=[
@@ -160,6 +161,7 @@ def _to_response(
             - parse_gtfs_time_to_minutes(departure_time)
         ),
         taxi_legs=candidate.taxi_legs,
+        destination_by_taxi=candidate.destination_by_taxi,
         estimated_taxi_fare_jpy=estimate_taxi_fare_jpy(
             candidate, base, destination, estimate_fare_jpy
         ),

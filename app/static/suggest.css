@@ -174,3 +174,9 @@ body {
   opacity: 0.6;
   cursor: default;
 }
+
+.candidate-head .taxi {
+  color: #a35a00;
+  font-size: 12px;
+  font-weight: 600;
+}

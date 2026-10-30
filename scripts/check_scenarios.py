@@ -119,9 +119,11 @@ async def build_winner(scenario, candidate, spots, engine, date) -> None:
         base_location_id=scenario.base,
         target_spot_ids=[
             *({"spot_id": stop.spot.spot_id,
-               "dwell_minutes": stop.departure_minutes - stop.arrival_minutes - stop.wait_minutes}
+               "dwell_minutes": stop.departure_minutes - stop.arrival_minutes - stop.wait_minutes,
+               "arrive_by_taxi": stop.by_taxi}
               for stop in candidate.stops),
-            {"spot_id": scenario.destination},
+            {"spot_id": scenario.destination,
+             "arrive_by_taxi": candidate.destination_by_taxi},
         ],
         departure_time=scenario.departure_time,
         departure_date=date,

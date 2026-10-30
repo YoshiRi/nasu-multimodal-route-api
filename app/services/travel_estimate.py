@@ -148,8 +148,9 @@ def cached_leg_arrival(
 def needs_taxi_regardless(origin: Spot, destination: Spot, engine: GTFSEngine) -> bool:
     """True when this hop has no bus option at all and is too far to walk.
 
-    Geography, not choice: the planner will build a taxi leg here whatever
-    the caller's taxi budget says, so it is not counted against it.
+    Geography, not choice: the planner builds a taxi leg here whatever it
+    is asked. The suggester still counts it against the taxi allowance, so
+    that asking for no taxis means none.
     """
 
     if (

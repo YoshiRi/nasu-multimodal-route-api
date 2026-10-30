@@ -15,7 +15,8 @@ class TargetSpot(BaseModel):
         gt=0,
         description=(
             "Expected stay duration at this spot, in minutes. Omit to use "
-            f"the default ({DEFAULT_DWELL_MINUTES} minutes)."
+            "the spot's own typical stay (dwell_minutes in GET /spots), or "
+            f"{DEFAULT_DWELL_MINUTES} minutes when it has none."
         ),
         examples=[90],
     )
@@ -29,6 +30,15 @@ class TargetSpot(BaseModel):
             "rather than silently missing the reservation."
         ),
         examples=["13:00"],
+    )
+    arrive_by_taxi: bool = Field(
+        False,
+        description=(
+            "Take a taxi for the hop to this spot instead of the bus. "
+            "Set it from a /plan/suggest candidate (by_taxi on a stop, "
+            "destination_by_taxi for the final entry); the planner never "
+            "takes a taxi on its own for a hop that has a bus."
+        ),
     )
     required: bool = Field(
         True,

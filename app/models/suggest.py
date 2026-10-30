@@ -72,12 +72,12 @@ class SuggestRequest(BaseModel):
         ge=0,
         le=2,
         description=(
-            "How many hops may be taken by taxi when no bus gets through. "
-            "Answers 'would this trip work if I took one taxi?' — taxi is "
-            "only ever used where buses fail, never to shave time off a "
-            "leg that already works, and all-bus candidates still rank "
-            "first. Times and fares for taxi hops are rough estimates "
-            "from straight-line distance."
+            "How many hops may be taken by taxi. Answers 'would this trip "
+            "work if I took one taxi?': a taxi stands in where no bus runs, "
+            "or where the bus runs but arrives too late for the trip to "
+            "work. A set of spots that works by bus is only ever offered "
+            "by bus, and all-bus candidates rank first. Times and fares "
+            "for taxi hops are rough estimates from straight-line distance."
         ),
         examples=[1],
     )
@@ -130,6 +130,13 @@ class SuggestedItinerary(BaseModel):
     )
     taxi_legs: int = Field(
         description="How many hops in this candidate need a taxi. 0 means all bus."
+    )
+    destination_by_taxi: bool = Field(
+        description=(
+            "True when the final hop, to the destination, is the taxi one. "
+            "Pass it as arrive_by_taxi on the destination entry in POST "
+            "/plan/route-plan, and each stop's by_taxi on its own entry."
+        )
     )
     estimated_taxi_fare_jpy: int = Field(
         description=(

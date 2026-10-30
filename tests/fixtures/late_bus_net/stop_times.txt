@@ -1,0 +1,9 @@
+trip_id,arrival_time,departure_time,stop_id,stop_sequence
+early,07:00:00,07:00:00,stop_hub,1
+early,07:20:00,07:20:00,stop_a,2
+early,07:40:00,07:40:00,stop_end,3
+from_a,11:00:00,11:00:00,stop_a,1
+from_a,11:20:00,11:20:00,stop_end,2
+late,14:00:00,14:00:00,stop_hub,1
+late,14:20:00,14:20:00,stop_a,2
+late,14:40:00,14:40:00,stop_end,3

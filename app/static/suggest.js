@@ -80,7 +80,7 @@ function renderMiniMap(container, request, candidate) {
 }
 
 function arrivalNote(stop) {
-  const parts = [stop.tags.join("・")];
+  const parts = [stop.by_taxi ? "🚕 タクシーで到着" : "", stop.tags.join("・")];
   if (stop.wait_minutes > 0) parts.push(`開館まで${stop.wait_minutes}分待ち`);
   parts.push(stop.opening_hours ? `営業 ${stop.opening_hours}` : "営業時間未確認");
   return parts.filter(Boolean).join(" / ");
@@ -96,7 +96,11 @@ function renderSchedule(candidate, request) {
       [stop.arrival_time, stop.name, arrivalNote(stop)],
       [stop.departure_time, stop.name, `出発（滞在${stop.stay_minutes}分）`],
     ]),
-    [candidate.destination_arrival_time, request.destination_name, "到着"],
+    [
+      candidate.destination_arrival_time,
+      request.destination_name,
+      candidate.destination_by_taxi ? "🚕 タクシーで到着" : "到着",
+    ],
   ];
 
   for (const [time, place, note] of rows) {
@@ -126,8 +130,12 @@ async function buildFullPlan(candidate, request, button) {
           ...candidate.stops.map((stop) => ({
             spot_id: stop.spot_id,
             dwell_minutes: stop.stay_minutes,
+            arrive_by_taxi: stop.by_taxi,
           })),
-          { spot_id: request.destination_spot_id },
+          {
+            spot_id: request.destination_spot_id,
+            arrive_by_taxi: candidate.destination_by_taxi,
+          },
         ],
         departure_time: request.departure_time,
         departure_date: request.departure_date,
@@ -160,7 +168,11 @@ function renderCandidate(candidate, request, index) {
     `<span class="rank">候補 ${index + 1}</span>` +
     `<span class="arrive">${escapeHtml(candidate.destination_arrival_time)} 着</span>` +
     `<span class="duration">所要 ${Math.floor(candidate.total_duration_min / 60)}時間` +
-    `${candidate.total_duration_min % 60}分</span>`;
+    `${candidate.total_duration_min % 60}分</span>` +
+    (candidate.taxi_legs
+      ? `<span class="taxi">🚕 タクシー${candidate.taxi_legs}区間 ` +
+        `約¥${candidate.estimated_taxi_fare_jpy.toLocaleString()}</span>`
+      : "");
   card.appendChild(head);
 
   const names = document.createElement("div");

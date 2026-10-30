@@ -18,6 +18,7 @@ from app.services.spot_repository import Spot, SpotNotFoundError, SpotRepository
 from app.services.travel_estimate import (
     MAX_DIRECT_WALKING_DISTANCE_M,
     estimate_leg_arrival,
+    estimated_taxi_minutes,
     estimated_walk_minutes,
 )
 from app.services.taxi_fare import estimate_fare_jpy
@@ -103,9 +104,11 @@ async def build_route_plan(
                 for _, target in remaining
             ]
 
+            by_taxi = [target.arrive_by_taxi for _, target in remaining]
+
             result = await _compute_plan(
-                base, targets, dwell_minutes, required_arrival_minutes, request, engine,
-                fare_estimator,
+                base, targets, dwell_minutes, required_arrival_minutes, by_taxi, request,
+                engine, fare_estimator,
             )
 
             if result.status == "success":
@@ -137,6 +140,7 @@ async def _compute_plan(
     targets: list[Spot],
     dwell_minutes: list[int],
     required_arrival_minutes: list[int | None],
+    by_taxi: list[bool],
     request: RoutePlanRequest,
     engine: GTFSEngine,
     fare_estimator: FareEstimator,
@@ -152,17 +156,27 @@ async def _compute_plan(
 
     for index in range(len(waypoints) - 1):
         origin, destination = waypoints[index], waypoints[index + 1]
-        leg_steps = await _build_leg(
-            origin,
-            destination,
-            cursor,
-            engine,
-            request.departure_date,
-            request.transfer_buffer_minutes,
-            step_order,
-            fare_estimator,
-            request.max_transfers,
-        )
+        if by_taxi[index]:
+            # Asked for, typically by a /plan/suggest candidate whose bus on
+            # this hop runs too late. Never chosen here on our own.
+            taxi_step, cursor.minutes = await _taxi_step(
+                origin.name, origin.lat, origin.lng,
+                destination.name, destination.lat, destination.lng,
+                cursor.minutes, step_order, fare_estimator,
+            )
+            leg_steps = [taxi_step]
+        else:
+            leg_steps = await _build_leg(
+                origin,
+                destination,
+                cursor,
+                engine,
+                request.departure_date,
+                request.transfer_buffer_minutes,
+                step_order,
+                fare_estimator,
+                request.max_transfers,
+            )
         if leg_steps is None:
             return _infeasible_response(len(targets))
 
@@ -634,17 +648,20 @@ def _arrival_at(
 ) -> int | None:
     """Arrival at destination, honoring its reservation time, or None."""
 
-    key = (origin.spot_id, destination.spot_id, depart_minutes)
+    key = (origin.spot_id, destination.spot_id, depart_minutes, target.arrive_by_taxi)
     if key not in cache:
-        cache[key] = estimate_leg_arrival(
-            origin,
-            destination,
-            depart_minutes,
-            engine,
-            request.departure_date,
-            request.transfer_buffer_minutes,
-            request.max_transfers,
-        )
+        if target.arrive_by_taxi:
+            cache[key] = depart_minutes + estimated_taxi_minutes(origin, destination)
+        else:
+            cache[key] = estimate_leg_arrival(
+                origin,
+                destination,
+                depart_minutes,
+                engine,
+                request.departure_date,
+                request.transfer_buffer_minutes,
+                request.max_transfers,
+            )
     arrival = cache[key]
     if arrival is None:
         return None

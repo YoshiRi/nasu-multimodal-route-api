@@ -1,0 +1,4 @@
+route_id,service_id,trip_id,trip_headsign,shape_id
+route_main,daily,early,Up,
+route_main,daily,from_a,Up,
+route_main,daily,late,Up,

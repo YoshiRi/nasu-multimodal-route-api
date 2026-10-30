@@ -132,11 +132,18 @@ curl -X POST http://localhost:8000/plan/suggest \
 ```
 
 `max_taxi_legs` answers a different question: *would this trip work if I
-took a taxi for one hop?* Taxi is only ever substituted where no bus gets
-through — never to shave time off a leg that already works — and all-bus
-candidates still rank first. The allowance covers every taxi hop,
+took a taxi for one hop?* A taxi stands in where no bus gets through, or
+where the bus does run but too late to be any use — in winter the bus from
+the hotel to 南ヶ丘牧場 still goes, it just arrives at 14:15 instead of
+10:15. A set of spots that works by bus is only ever offered by bus, and
+all-bus candidates rank first. The allowance covers every taxi hop,
 including ones forced by a spot having no bus stop near it, so asking for
 zero really does mean zero.
+
+Each stop says whether it is reached `by_taxi`, and the candidate whether
+its final hop is (`destination_by_taxi`). Pass those on as
+`arrive_by_taxi` when building it with route-plan, which otherwise never
+takes a taxi on a hop that has a bus.
 
 Each stop in a candidate reports `stay_minutes`, any `wait_minutes` for
 opening, and that day's `opening_hours`. Leave `dwell_minutes` unset to
@@ -189,6 +196,9 @@ Each target accepts:
 - `required_arrival_time` — a fixed reservation/meeting time. Arriving early
   inserts a `wait` step; arriving late makes the plan infeasible rather than
   silently missing it.
+- `arrive_by_taxi` — take a taxi for the hop to this spot (set from a
+  /plan/suggest candidate); without it, a taxi is only used where no bus
+  stop is within reach
 - `required` — if `false`, the spot is dropped and the rest replanned when it
   can't be fitted in, instead of failing the whole request.
 

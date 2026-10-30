@@ -470,6 +470,7 @@ document.getElementById("suggest-submit").addEventListener("click", async () => 
         departure_date: departureDate,
         arrive_by: arriveBy,
         spot_count: parseInt(document.getElementById("suggest-spot-count").value, 10) || 3,
+        max_taxi_legs: parseInt(document.getElementById("suggest-taxi").value, 10) || 0,
         tags,
       }),
     });
